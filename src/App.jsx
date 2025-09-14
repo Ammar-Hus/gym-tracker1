@@ -26,10 +26,7 @@ function groupByExercise(logs){
 }
 
 export default function App(){
-  const [logs, setLogs] = useState(()=> {
-    try { const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }
-    catch(e){ return []; }
-  });
+  const [logs, setLogs] = useState(()=>{ try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [showPanel, setShowPanel] = useState(false);
@@ -40,10 +37,7 @@ export default function App(){
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
 
-  function openDay(day){ 
-    setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); 
-    setSetsInput([{set:1,reps:8,weight:0}]); setAbsSelected([]);
-  }
+  function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); setAbsSelected([]); }
   function openExercise(ex){ setSelectedExercise(ex); setSetsInput([{set:1,reps:8,weight:0}]); }
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
   function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
@@ -67,31 +61,27 @@ export default function App(){
 
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
 
-  // --- Enhanced progress calculation ---
+  function averageInRange(ex, startDate){
+    const arr = (exerciseMap[ex]||[]).filter(r=> isAfter(parseISO(r.date), subDays(parseISO(startDate),1)) || r.date===startDate );
+    if(!arr.length) return {avgReps:0, avgWeight:0, count:0};
+    const reps = arr.reduce((s,r)=>s + r.reps,0)/arr.length;
+    const weight = arr.reduce((s,r)=>s + r.weight,0)/arr.length;
+    return {avgReps: Math.round(reps*100)/100, avgWeight: Math.round(weight*100)/100, count: arr.length};
+  }
+
+  const day14Start = format(subDays(new Date(),13),'yyyy-MM-dd');
+  const monthStart = format(startOfMonth(new Date()),'yyyy-MM-dd');
+
   const progressSummary = useMemo(()=>{
     const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
-      const firstEntry = arr.length? arr[0] : {weight:0, reps:0, date:null};
-      const lastEntry = arr.length? arr[arr.length-1] : {weight:0, reps:0, date:null};
-      const pctWeight = firstEntry.weight? Math.round(((lastEntry.weight-firstEntry.weight)/firstEntry.weight)*100*100)/100 : null;
-      const pctReps = firstEntry.reps? Math.round(((lastEntry.reps-firstEntry.reps)/firstEntry.reps)*100*100)/100 : null;
-
-      // Monthly aggregation
-      const monthStart = format(startOfMonth(new Date()),'yyyy-MM-dd');
-      const monthArr = arr.filter(r=> isAfter(parseISO(r.date), subDays(parseISO(monthStart),1)) || r.date===monthStart);
-      const avgWeightMonth = monthArr.length? Math.round(monthArr.reduce((s,r)=>s+r.weight,0)/monthArr.length*100)/100 : 0;
-      const avgRepsMonth = monthArr.length? Math.round(monthArr.reduce((s,r)=>s+r.reps,0)/monthArr.length*100)/100 : 0;
-
-      return {
-        exercise: ex,
-        first: firstEntry,
-        last: lastEntry,
-        pctWeight,
-        pctReps,
-        avgWeightMonth,
-        avgRepsMonth
-      };
+      const first = arr.length? arr[0]: {date:null, reps:0, weight:0};
+      const avg14 = averageInRange(ex, day14Start);
+      const avgMonth = averageInRange(ex, monthStart);
+      const pct14 = first.weight? Math.round(((avg14.avgWeight-first.weight)/first.weight)*100*100)/100 : null;
+      const pctMonth = first.weight? Math.round(((avgMonth.avgWeight-first.weight)/first.weight)*100*100)/100 : null;
+      return {exercise:ex, first, avg14, avgMonth, pct14, pctMonth};
     });
   }, [exerciseMap]);
 
@@ -121,14 +111,57 @@ export default function App(){
         {tab==='dashboard' && (
           <div className="space-y-4">
             <div className="text-xl font-bold">Select a Day</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative z-10">
               {SPLIT.map(d=>(
-                <button key={d.day} onClick={()=>openDay(d.day)} className="p-4 rounded-xl shadow bg-white text-left">
+                <button key={d.day} onClick={()=>openDay(d.day)} className="p-4 rounded-xl shadow bg-white text-left hover:bg-indigo-50 transition">
                   <div className="font-semibold">{d.day}</div>
                   <div className="text-xs text-gray-500">{d.muscle}</div>
                 </button>
               ))}
             </div>
+
+            {showPanel && selectedDay && (
+              <div className="fixed inset-0 bg-black/40 flex justify-center md:justify-end items-start pt-10 px-2 z-20">
+                <div className="bg-white dark:bg-gray-800 w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="font-bold">{selectedDay} Exercises</div>
+                    <button onClick={()=>setShowPanel(false)}>✕</button>
+                  </div>
+
+                  {!selectedExercise && (
+                    <div className="space-y-2">
+                      {(SPLIT.find(d=>d.day===selectedDay)?.exercises||[]).map(ex=>(
+                        <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">{ex}</button>
+                      ))}
+
+                      <div className="mt-3 text-sm font-semibold">Abs Exercises (select manually):</div>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {['Plank','Crunch','Russian Twists','V-Ups','Hanging Leg Raise'].map(ex=>(
+                          <button key={ex} onClick={()=>toggleAbs(ex)} className={`px-2 py-1 rounded ${absSelected.includes(ex)?'bg-indigo-500 text-white':'bg-gray-100'}`}>{ex}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedExercise && (
+                    <div>
+                      <div className="font-semibold mb-2">{selectedExercise}</div>
+                      {setsInput.map((s,i)=>(
+                        <div key={i} className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 mb-2">
+                          <input type="number" value={s.reps} onChange={e=>updateSet(i,'reps',e.target.value)} className="border p-1 w-full sm:w-16" placeholder="Reps" />
+                          <input type="number" value={s.weight} onChange={e=>updateSet(i,'weight',e.target.value)} className="border p-1 w-full sm:w-20" placeholder="Weight" />
+                          <button onClick={()=>removeSet(i)} className="text-red-500">✕</button>
+                        </div>
+                      ))}
+                      <div className="flex gap-2">
+                        <button onClick={addSetRow} className="px-3 py-1 bg-gray-200 rounded w-full sm:w-auto">+ Set</button>
+                        <button onClick={saveExercise} className="px-3 py-1 bg-indigo-500 text-white rounded w-full sm:w-auto">Save</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -141,9 +174,8 @@ export default function App(){
                 <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
                   <div className="font-semibold mb-1">{item.exercise}</div>
                   <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
-                  <div className="text-sm text-gray-500">Last: {item.last.weight}kg × {item.last.reps} reps</div>
-                  <div className="text-sm text-gray-500">Weight ↑: {item.pctWeight || 0}% | Reps ↑: {item.pctReps || 0}%</div>
-                  <div className="text-sm text-gray-500">Month Avg: {item.avgWeightMonth}kg × {item.avgRepsMonth} reps</div>
+                  <div className="text-sm">14d Avg: {item.avg14.avgWeight}kg ({item.pct14||0}% vs start), {item.avg14.avgReps} reps</div>
+                  <div className="text-sm">Month Avg: {item.avgMonth.avgWeight}kg ({item.pctMonth||0}% vs start), {item.avgMonth.avgReps} reps</div>
                   <ResponsiveContainer width="100%" height={150}>
                     <LineChart data={chartDataForExercise(item.exercise)}>
                       <CartesianGrid strokeDasharray="3 3" />
