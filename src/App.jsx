@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { format, parseISO, subDays, startOfMonth, isAfter } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 const SPLIT = [
   { day: 'Monday', muscle: 'Chest + Triceps + Abs', exercises: ['Bench Press','Incline DB Press','Dips','Pushdowns','Overhead DB Extension','Plank','Deadbug','Woodchoppers'] },
@@ -12,7 +12,7 @@ const SPLIT = [
   { day: 'Sunday', muscle: 'Legs + Shoulders', exercises: ['Leg Press','Leg Extension','Ham Curl','Arnold Press','Front Raise','Cable Lateral Raise','Stretch & Mobility'] }
 ];
 
-const STORAGE_KEY = 'gympro_logs_v2';
+const STORAGE_KEY = 'gympro_logs_v3';
 const STORAGE_FIRST = 'gympro_first_entry_day';
 
 function uid(){ return Math.random().toString(36).slice(2,9); }
@@ -97,6 +97,15 @@ export default function App(){
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
+  function totalStrengthData() {
+    const map = {};
+    logs.forEach(l => {
+      if(!map[l.date]) map[l.date] = 0;
+      map[l.date] += l.weight * l.reps;
+    });
+    return Object.keys(map).sort().map(date => ({ date, strength: Math.round(map[date]*100)/100 }));
+  }
+
   const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
 
   return (
@@ -106,6 +115,7 @@ export default function App(){
         <button onClick={()=>setTab('dashboard')} className={`p-2 rounded ${tab==='dashboard'?'bg-indigo-100 font-bold':''}`}>Dashboard</button>
         <button onClick={()=>setTab('progress')} className={`p-2 rounded ${tab==='progress'?'bg-indigo-100 font-bold':''}`}>Progress</button>
         <button onClick={()=>setTab('weekly')} className={`p-2 rounded ${tab==='weekly'?'bg-indigo-100 font-bold':''}`}>Weekly Log</button>
+        <button onClick={()=>setTab('strength')} className={`p-2 rounded ${tab==='strength'?'bg-indigo-100 font-bold':''}`}>Body Strength</button>
         <button onClick={resetProgress} className="mt-4 p-2 bg-red-500 text-white rounded hover:bg-red-600">Reset Progress</button>
       </div>
 
@@ -169,8 +179,8 @@ export default function App(){
               return (
                 <div key={ex} className="p-3 rounded-xl bg-white shadow">
                   <div className="font-semibold mb-1">{ex}</div>
-                  <div className="text-sm text-gray-500">Latest: {last.weight}kg × {last.reps} reps</div>
-                  <div className="text-sm text-green-600">+{pct.weightPct}% Weight, +{pct.repsPct}% Reps vs first</div>
+                  <div className="text-sm text-gray-500">Last: {last.weight}kg × {last.reps} reps</div>
+                  <div className="text-sm text-green-600">Increase: {pct.weightPct}% weight, {pct.repsPct}% reps</div>
                   <ResponsiveContainer width="100%" height={150}>
                     <LineChart data={chartDataForExercise(ex)}>
                       <CartesianGrid strokeDasharray="3 3" />
@@ -190,23 +200,34 @@ export default function App(){
         {/* Weekly Log */}
         {tab==='weekly' && (
           <div>
-            <h2 className="text-xl font-bold mb-4">Weekly Logs</h2>
-            {SPLIT.map(d => (
-              <div key={d.day} className="mb-4 p-3 bg-white shadow rounded">
-                <div className="font-semibold">{d.day} ({d.muscle})</div>
-                {d.exercises.map(ex => {
-                  const logsEx = exerciseMap[ex]?.filter(l => l.day===d.day) || [];
-                  return (
-                    <div key={ex} className="text-sm">
-                      <strong>{ex}:</strong> {logsEx.map(l=>{
-                        const pct = getPercentageIncrease(d.day, ex, l.weight, l.reps);
-                        return `${l.reps} reps × ${l.weight}kg (+${pct.weightPct}%, +${pct.repsPct}%)`;
-                      }).join(', ') || 'No entry'}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+            <div className="text-xl font-bold mb-4">Weekly Log</div>
+            {SPLIT.map(day=>{
+              const dayLogs = logs.filter(l=>l.day===day.day);
+              return (
+                <div key={day.day} className="p-3 rounded-xl bg-white shadow mb-3">
+                  <div className="font-semibold">{day.day} ({day.muscle})</div>
+                  {dayLogs.length ? dayLogs.map(l=>(
+                    <div key={l.id} className="text-sm">{l.exercise}: {l.weight}kg × {l.reps} reps</div>
+                  )) : <div className="text-gray-400 text-sm">No logs yet</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Body Strength */}
+        {tab==='strength' && (
+          <div>
+            <div className="text-xl font-bold mb-4">Total Body Strength</div>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={totalStrengthData()}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="strength" stroke="#10B981" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         )}
       </div>
