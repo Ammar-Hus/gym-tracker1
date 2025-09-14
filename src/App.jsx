@@ -1,26 +1,23 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { format, parseISO, subDays, startOfMonth, isAfter } from 'date-fns';
 
 const SPLIT = [
-  { day: 'Monday', muscle: 'Chest + Triceps + Abs', exercises: ['Bench Press','Incline DB Press','Dips','Pushdowns','Overhead DB Extension','Plank','Deadbug','Woodchoppers'] },
-  { day: 'Tuesday', muscle: 'Back + Biceps', exercises: ['Pull-Ups','Barbell Rows','Seated Rows','Barbell Curls','DB Curls','Concentration Curl'] },
-  { day: 'Wednesday', muscle: 'Legs + Shoulders', exercises: ['Squats','RDLs','Lunges','OHP','Lateral Raises','Rear Delt Flys','Hanging Leg Raise','Russian Twists'] },
-  { day: 'Thursday', muscle: 'Chest + Triceps', exercises: ['Incline Bench','Chest Flys','Push-Ups','Skullcrushers','Rope Pushdowns','Dips'] },
+  { day: 'Monday', muscle: 'Chest + Triceps + Abs', exercises: ['Bench Press','Incline DB Press','Dips','Pushdowns','Overhead DB Extension','Plank'] },
+  { day: 'Tuesday', muscle: 'Back + Biceps', exercises: ['Pull-Ups','Barbell Rows','Seated Rows','Barbell Curls'] },
+  { day: 'Wednesday', muscle: 'Legs + Shoulders', exercises: ['Squats','RDLs','Lunges','OHP','Lateral Raises'] },
+  { day: 'Thursday', muscle: 'Chest + Triceps', exercises: ['Incline Bench','Chest Flys','Push-Ups','Skullcrushers'] },
   { day: 'Friday', muscle: 'Rest', exercises: [] },
-  { day: 'Saturday', muscle: 'Back + Biceps', exercises: ['Lat Pulldown','T-Bar Row','DB Row','Incline DB Curl','Hammer Curl','Cable Curl','Decline Crunch','V-Ups','Cable Crunch'] },
-  { day: 'Sunday', muscle: 'Legs + Shoulders', exercises: ['Leg Press','Leg Extension','Ham Curl','Arnold Press','Front Raise','Cable Lateral Raise','Stretch & Mobility'] }
+  { day: 'Saturday', muscle: 'Back + Biceps', exercises: ['Lat Pulldown','T-Bar Row','DB Row','Incline DB Curl'] },
+  { day: 'Sunday', muscle: 'Legs + Shoulders', exercises: ['Leg Press','Leg Extension','Ham Curl','Arnold Press']}
 ];
 
 const STORAGE_KEY = 'gympro_logs_v1';
-function uid(){ return Math.random().toString(36).slice(2,9); }
 
+function uid(){ return Math.random().toString(36).slice(2,9); }
 function groupByExercise(logs){
   const map = {};
-  logs.forEach(l=>{
-    if(!map[l.exercise]) map[l.exercise]=[];
-    map[l.exercise].push(l);
-  });
+  logs.forEach(l=>{ if(!map[l.exercise]) map[l.exercise]=[]; map[l.exercise].push(l); });
   Object.keys(map).forEach(k=> map[k].sort((a,b)=> a.date > b.date ? 1 : -1));
   return map;
 }
@@ -41,24 +38,23 @@ export default function App(){
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
   function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
-  function resetAll(){ localStorage.removeItem(STORAGE_KEY); setLogs([]); }
-
   function saveExercise(){
     if(!selectedExercise) return;
-    const newEntries = setsInput.map(s=>({ id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise, set: s.set, reps: Number(s.reps), weight: Number(s.weight) }));
+    const newEntries = setsInput.map(s=>({
+      id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
+      set: s.set, reps: Number(s.reps), weight: Number(s.weight)
+    }));
     setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
     setSetsInput([{set:1,reps:8,weight:0}]);
     setSelectedExercise(null);
   }
+  function resetProgress(){ if(window.confirm("Reset all progress?")) setLogs([]); }
 
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
-
   const firstPerExercise = useMemo(()=>{
-    const out = {};
-    Object.keys(exerciseMap).forEach(ex=>{
+    const out = {}; Object.keys(exerciseMap).forEach(ex=>{
       const arr = exerciseMap[ex]; if(arr.length){ const first = arr[0]; out[ex] = {date:first.date, reps:first.reps, weight:first.weight}; }
-    });
-    return out;
+    }); return out;
   }, [exerciseMap]);
 
   function averageInRange(ex, startDate){
@@ -98,25 +94,20 @@ export default function App(){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
     const map = {};
     arr.forEach(a=>{ if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; });
-    return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
+    const out = Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
+    return out;
   }
 
   const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
 
   return (
     <div className={`min-h-screen ${primary} flex flex-col`}>
-      {/* Tabs */}
       <div className="flex justify-around border-b bg-white sticky top-0 z-10">
         <button onClick={()=>setTab('dashboard')} className={`flex-1 p-3 ${tab==='dashboard'?'font-bold text-indigo-600':'text-gray-600'}`}>Dashboard</button>
         <button onClick={()=>setTab('progress')} className={`flex-1 p-3 ${tab==='progress'?'font-bold text-indigo-600':'text-gray-600'}`}>Progress</button>
+        <button onClick={resetProgress} className="flex-1 p-3 text-red-500">Reset All</button>
       </div>
 
-      {/* Reset All Button */}
-      <div className="p-4">
-        <button onClick={resetAll} className="px-4 py-2 bg-red-500 text-white rounded">Reset All Progress</button>
-      </div>
-
-      {/* Dashboard */}
       {tab==='dashboard' && (
         <div className="p-4 space-y-4">
           <div className="text-xl font-bold">Select a Day</div>
@@ -129,7 +120,6 @@ export default function App(){
             ))}
           </div>
 
-          {/* Slide-in Panel */}
           {showPanel && selectedDay && (
             <div className="fixed inset-0 bg-black/40 flex justify-end">
               <div className="bg-white w-80 p-4 overflow-y-auto">
@@ -166,7 +156,6 @@ export default function App(){
         </div>
       )}
 
-      {/* Progress */}
       {tab==='progress' && (
         <div className="p-4 space-y-6">
           <div className="text-xl font-bold">Progress Summary</div>
@@ -174,11 +163,9 @@ export default function App(){
             {progressSummary.map(item=>(
               <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
                 <div className="font-semibold mb-1">{item.exercise}</div>
-                <div className="text-sm text-gray-500">First: {item.first.weight}kg x {item.first.reps}</div>
-                <div className="text-sm text-gray-500">Last 14 days avg: {item.avg14.avgWeight}kg x {item.avg14.avgReps} reps</div>
-                <div className="text-sm text-gray-500">% Increase 14 days: {item.pct14.weight ?? 0}% / {item.pct14.reps ?? 0}%</div>
-                <div className="text-sm text-gray-500">Month avg: {item.avgMonth.avgWeight}kg x {item.avgMonth.avgReps} reps</div>
-                <div className="text-sm text-gray-500">% Increase Month: {item.pctMonth.weight ?? 0}% / {item.pctMonth.reps ?? 0}%</div>
+                <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
+                <div className="text-sm text-gray-500">14d Avg: {item.avg14.avgWeight}kg × {item.avg14.avgReps} reps ({item.pct14.weight ?? 0}% / {item.pct14.reps ?? 0}%)</div>
+                <div className="text-sm text-gray-500">Month Avg: {item.avgMonth.avgWeight}kg × {item.avgMonth.avgReps} reps ({item.pctMonth.weight ?? 0}% / {item.pctMonth.reps ?? 0}%)</div>
                 <div className="h-32 mt-2">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartDataForExercise(item.exercise)}>
