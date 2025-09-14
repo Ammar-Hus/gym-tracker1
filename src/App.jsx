@@ -12,7 +12,8 @@ const SPLIT = [
   { day: 'Sunday', muscle: 'Legs + Shoulders', exercises: ['Leg Press','Leg Extension','Ham Curl','Arnold Press','Front Raise','Cable Lateral Raise','Stretch & Mobility'] }
 ];
 
-const STORAGE_KEY = 'gympro_logs_v1';
+const STORAGE_KEY = 'gympro_logs_v2';
+
 function uid(){ return Math.random().toString(36).slice(2,9); }
 function groupByExercise(logs){
   const map = {};
@@ -24,7 +25,7 @@ function groupByExercise(logs){
   return map;
 }
 
-export default function App(){
+export default function App() {
   const [logs, setLogs] = useState(()=>{
     try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
   });
@@ -36,6 +37,14 @@ export default function App(){
   const [tab, setTab] = useState('dashboard');
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
+
+  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
+  const initialSplitState = useMemo(()=>{
+    try{
+      const raw = localStorage.getItem('gympro_initial_state');
+      return raw ? JSON.parse(raw) : {};
+    }catch(e){return {}}
+  },[]);
 
   function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); }
   function openExercise(ex){ setSelectedExercise(ex); setSetsInput([{set:1,reps:8,weight:0}]); }
@@ -54,18 +63,20 @@ export default function App(){
     setSelectedExercise(null);
   }
 
-  // Mark rest explicitly
-  function markRest(day){
-    const newEntry = { id: uid(), date: format(new Date(),'yyyy-MM-dd'), day, exercise: 'Rest', set:0, reps:0, weight:0 };
-    setLogs(prev=>[...prev, newEntry]);
+  function resetProgress() {
+    const initialState = {};
+    SPLIT.flatMap(d => d.exercises).forEach(ex => {
+      const logsForEx = (exerciseMap[ex] || []).sort((a,b)=>a.date > b.date?1:-1);
+      if(logsForEx.length){
+        const first = logsForEx[0];
+        initialState[ex] = { weight: first.weight, reps: first.reps };
+      } else {
+        initialState[ex] = { weight: 0, reps: 0 };
+      }
+    });
+    localStorage.setItem('gympro_initial_state', JSON.stringify(initialState));
+    setLogs([]);
   }
-
-  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
-  const firstPerExercise = useMemo(()=>{
-    const out = {}; Object.keys(exerciseMap).forEach(ex=>{
-      const arr = exerciseMap[ex]; if(arr.length){ const first = arr[0]; out[ex] = {date:first.date, reps:first.reps, weight:first.weight}; }
-    }); return out;
-  }, [exerciseMap]);
 
   function averageInRange(ex, startDate){
     const arr = (exerciseMap[ex]||[]).filter(r=> isAfter(parseISO(r.date), subDays(parseISO(startDate),1)) || r.date===startDate );
@@ -81,10 +92,10 @@ export default function App(){
   const progressSummary = useMemo(()=>{
     const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
     return exs.map(ex=>{
-      const first = firstPerExercise[ex] || null;
+      const first = initialSplitState[ex] || {weight:0,reps:0};
       const avg14 = averageInRange(ex, day14Start);
       const avgMonth = averageInRange(ex, monthStart);
-      const weightFirst = first? first.weight : 0; const repsFirst = first? first.reps : 0;
+      const weightFirst = first.weight; const repsFirst = first.reps;
       const weight14 = avg14.avgWeight; const reps14 = avg14.avgReps;
       const weightMonth = avgMonth.avgWeight; const repsMonth = avgMonth.avgReps;
       const pctIncreaseWeight14 = weightFirst? Math.round(((weight14 - weightFirst)/weightFirst)*100*100)/100 : null;
@@ -93,12 +104,12 @@ export default function App(){
       const pctIncreaseRepsMonth = repsFirst? Math.round(((repsMonth - repsFirst)/repsFirst)*100*100)/100 : null;
       return {
         exercise: ex,
-        first: {date: first? first.date : null, weight: weightFirst, reps: repsFirst},
+        first: {weight: weightFirst, reps: repsFirst},
         avg14: { ...avg14 }, pct14: { weight: pctIncreaseWeight14, reps: pctIncreaseReps14 },
         avgMonth: { ...avgMonth }, pctMonth: { weight: pctIncreaseWeightMonth, reps: pctIncreaseRepsMonth }
       };
     });
-  }, [exerciseMap, firstPerExercise]);
+  }, [exerciseMap, initialSplitState]);
 
   function chartDataForExercise(ex){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
@@ -114,15 +125,13 @@ export default function App(){
       <div className="w-56 bg-white shadow p-4 flex flex-col space-y-3">
         <button onClick={()=>setTab('dashboard')} className={`p-2 text-left ${tab==='dashboard'?'font-bold text-indigo-600':'text-gray-600'}`}>Dashboard</button>
         <button onClick={()=>setTab('progress')} className={`p-2 text-left ${tab==='progress'?'font-bold text-indigo-600':'text-gray-600'}`}>Progress</button>
-        <div className="mt-4 border-t pt-2">
-          {SPLIT.map(d=> d.muscle==='Rest' ? (
-            <button key={d.day} onClick={()=>markRest(d.day)} className="text-red-500 text-left w-full p-1 rounded hover:bg-red-50">{d.day} Rest</button>
-          ) : null)}
-        </div>
+        <button onClick={()=>setTab('weekly')} className={`p-2 text-left ${tab==='weekly'?'font-bold text-indigo-600':'text-gray-600'}`}>Weekly Log</button>
+        <button onClick={resetProgress} className="mt-2 p-2 bg-red-500 text-white rounded hover:bg-red-600">Reset Progress</button>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 p-4 overflow-y-auto">
+        {/* Dashboard */}
         {tab==='dashboard' && (
           <div className="space-y-4">
             <div className="text-xl font-bold">Select a Day</div>
@@ -145,9 +154,7 @@ export default function App(){
                   {!selectedExercise && (
                     <div className="space-y-2">
                       {(SPLIT.find(d=>d.day===selectedDay)?.exercises||[]).map(ex=>(
-                        <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">
-                          {ex}
-                        </button>
+                        <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">{ex}</button>
                       ))}
                     </div>
                   )}
@@ -171,29 +178,48 @@ export default function App(){
           </div>
         )}
 
+        {/* Progress */}
         {tab==='progress' && (
           <div className="space-y-6">
             <div className="text-xl font-bold">Progress Summary</div>
-            <div className="grid gap-3">
-              {progressSummary.map(item=>(
-                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
-                  <div className="font-semibold mb-1">{item.exercise}</div>
-                  <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
-                  <div className="text-sm">14d Avg: {item.avg14.avgWeight}kg ({item.pct14.weight||0}% vs start), {item.avg14.avgReps} reps ({item.pct14.reps||0}% vs start)</div>
-                  <div className="text-sm">Month Avg: {item.avgMonth.avgWeight}kg ({item.pctMonth.weight||0}% vs start), {item.avgMonth.avgReps} reps ({item.pctMonth.reps||0}% vs start)</div>
-                  <ResponsiveContainer width="100%" height={150}>
-                    <LineChart data={chartDataForExercise(item.exercise)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="weight" stroke="#6366F1" />
-                      <Line type="monotone" dataKey="reps" stroke="#EC4899" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ))}
-            </div>
+            {progressSummary.map(item=>(
+              <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
+                <div className="font-semibold mb-1">{item.exercise}</div>
+                <div className="text-sm text-gray-500">Initial: {item.first.weight}kg × {item.first.reps} reps</div>
+                <div className="text-sm">14d Avg: {item.avg14.avgWeight}kg ({item.pct14.weight||0}% vs start), {item.avg14.avgReps} reps ({item.pct14.reps||0}% vs start)</div>
+                <div className="text-sm">Month Avg: {item.avgMonth.avgWeight}kg ({item.pctMonth.weight||0}% vs start), {item.avgMonth.avgReps} reps ({item.pctMonth.reps||0}% vs start)</div>
+                <ResponsiveContainer width="100%" height={150}>
+                  <LineChart data={chartDataForExercise(item.exercise)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
+                    <YAxis />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="weight" stroke="#6366F1" />
+                    <Line type="monotone" dataKey="reps" stroke="#EC4899" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Weekly Log */}
+        {tab==='weekly' && (
+          <div>
+            <h2 className="text-xl font-bold mb-4">Weekly Logs</h2>
+            {SPLIT.map(d => (
+              <div key={d.day} className="mb-4 p-3 bg-white shadow rounded">
+                <div className="font-semibold">{d.day} ({d.muscle})</div>
+                {d.exercises.map(ex => {
+                  const logsEx = exerciseMap[ex]?.filter(l => l.day===d.day) || [];
+                  return (
+                    <div key={ex} className="text-sm">
+                      <strong>{ex}:</strong> {logsEx.map(l=>`${l.reps} reps × ${l.weight}kg`).join(', ') || 'No entry'}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         )}
       </div>
