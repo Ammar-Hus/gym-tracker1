@@ -13,8 +13,10 @@ const SPLIT = [
 ];
 
 const STORAGE_KEY = 'gympro_logs_v2';
+const STORAGE_FIRST = 'gympro_first_entry_day';
 
 function uid(){ return Math.random().toString(36).slice(2,9); }
+
 function groupByExercise(logs){
   const map = {};
   logs.forEach(l=>{
@@ -25,10 +27,8 @@ function groupByExercise(logs){
   return map;
 }
 
-export default function App() {
-  const [logs, setLogs] = useState(()=>{
-    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
-  });
+export default function App(){
+  const [logs, setLogs] = useState(()=>{ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }catch(e){return []} });
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [showPanel, setShowPanel] = useState(false);
@@ -38,13 +38,9 @@ export default function App() {
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
 
-  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
-  const initialSplitState = useMemo(()=>{
-    try{
-      const raw = localStorage.getItem('gympro_initial_state');
-      return raw ? JSON.parse(raw) : {};
-    }catch(e){return {}}
-  },[]);
+  function resetProgress(){
+    if(window.confirm("Are you sure you want to reset all logs?")) setLogs([]);
+  }
 
   function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); }
   function openExercise(ex){ setSelectedExercise(ex); setSetsInput([{set:1,reps:8,weight:0}]); }
@@ -58,75 +54,59 @@ export default function App() {
       id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
       set: s.set, reps: Number(s.reps), weight: Number(s.weight)
     }));
-    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
+
+    setLogs(prev=>{
+      const all = [...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1);
+
+      // Save first entry per day+exercise if not exists
+      const firstEntries = JSON.parse(localStorage.getItem(STORAGE_FIRST) || '{}');
+      const key = `${selectedDay}-${selectedExercise}`;
+      if(!firstEntries[key]){
+        firstEntries[key] = { weight: newEntries[0].weight, reps: newEntries[0].reps };
+        localStorage.setItem(STORAGE_FIRST, JSON.stringify(firstEntries));
+      }
+
+      return all;
+    });
+
     setSetsInput([{set:1,reps:8,weight:0}]);
     setSelectedExercise(null);
   }
 
-  function resetProgress() {
-    const initialState = {};
-    SPLIT.flatMap(d => d.exercises).forEach(ex => {
-      const logsForEx = (exerciseMap[ex] || []).sort((a,b)=>a.date > b.date?1:-1);
-      if(logsForEx.length){
-        const first = logsForEx[0];
-        initialState[ex] = { weight: first.weight, reps: first.reps };
-      } else {
-        initialState[ex] = { weight: 0, reps: 0 };
-      }
-    });
-    localStorage.setItem('gympro_initial_state', JSON.stringify(initialState));
-    setLogs([]);
+  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
+
+  function getPercentageIncrease(day, exercise, weight, reps){
+    const firstEntries = JSON.parse(localStorage.getItem(STORAGE_FIRST) || '{}');
+    const key = `${day}-${exercise}`;
+    if(!firstEntries[key]) return { weightPct: 0, repsPct: 0 };
+    const w0 = firstEntries[key].weight;
+    const r0 = firstEntries[key].reps;
+    return {
+      weightPct: w0 ? Math.round(((weight - w0)/w0)*100*100)/100 : null,
+      repsPct: r0 ? Math.round(((reps - r0)/r0)*100*100)/100 : null
+    };
   }
-
-  function averageInRange(ex, startDate){
-    const arr = (exerciseMap[ex]||[]).filter(r=> isAfter(parseISO(r.date), subDays(parseISO(startDate),1)) || r.date===startDate );
-    if(!arr.length) return {avgReps:0, avgWeight:0, count:0};
-    const reps = arr.reduce((s,r)=>s + r.reps,0)/arr.length;
-    const weight = arr.reduce((s,r)=>s + r.weight,0)/arr.length;
-    return {avgReps: Math.round(reps*100)/100, avgWeight: Math.round(weight*100)/100, count: arr.length};
-  }
-
-  const day14Start = format(subDays(new Date(),13),'yyyy-MM-dd');
-  const monthStart = format(startOfMonth(new Date()),'yyyy-MM-dd');
-
-  const progressSummary = useMemo(()=>{
-    const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
-    return exs.map(ex=>{
-      const first = initialSplitState[ex] || {weight:0,reps:0};
-      const avg14 = averageInRange(ex, day14Start);
-      const avgMonth = averageInRange(ex, monthStart);
-      const weightFirst = first.weight; const repsFirst = first.reps;
-      const weight14 = avg14.avgWeight; const reps14 = avg14.avgReps;
-      const weightMonth = avgMonth.avgWeight; const repsMonth = avgMonth.avgReps;
-      const pctIncreaseWeight14 = weightFirst? Math.round(((weight14 - weightFirst)/weightFirst)*100*100)/100 : null;
-      const pctIncreaseReps14 = repsFirst? Math.round(((reps14 - repsFirst)/repsFirst)*100*100)/100 : null;
-      const pctIncreaseWeightMonth = weightFirst? Math.round(((weightMonth - weightFirst)/weightFirst)*100*100)/100 : null;
-      const pctIncreaseRepsMonth = repsFirst? Math.round(((repsMonth - repsFirst)/repsFirst)*100*100)/100 : null;
-      return {
-        exercise: ex,
-        first: {weight: weightFirst, reps: repsFirst},
-        avg14: { ...avg14 }, pct14: { weight: pctIncreaseWeight14, reps: pctIncreaseReps14 },
-        avgMonth: { ...avgMonth }, pctMonth: { weight: pctIncreaseWeightMonth, reps: pctIncreaseRepsMonth }
-      };
-    });
-  }, [exerciseMap, initialSplitState]);
 
   function chartDataForExercise(ex){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
     const map = {};
-    arr.forEach(a=>{ if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; });
-    const out = Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
-    return out;
+    arr.forEach(a=>{ 
+      if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; 
+      map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; 
+    });
+    return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
+  const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
+
   return (
-    <div className="min-h-screen flex bg-gradient-to-r from-indigo-100 via-white to-pink-50">
-      {/* Left Menu */}
-      <div className="w-56 bg-white shadow p-4 flex flex-col space-y-3">
-        <button onClick={()=>setTab('dashboard')} className={`p-2 text-left ${tab==='dashboard'?'font-bold text-indigo-600':'text-gray-600'}`}>Dashboard</button>
-        <button onClick={()=>setTab('progress')} className={`p-2 text-left ${tab==='progress'?'font-bold text-indigo-600':'text-gray-600'}`}>Progress</button>
-        <button onClick={()=>setTab('weekly')} className={`p-2 text-left ${tab==='weekly'?'font-bold text-indigo-600':'text-gray-600'}`}>Weekly Log</button>
-        <button onClick={resetProgress} className="mt-2 p-2 bg-red-500 text-white rounded hover:bg-red-600">Reset Progress</button>
+    <div className={`min-h-screen ${primary} flex`}>
+      {/* Sidebar */}
+      <div className="w-56 bg-white shadow p-4 flex flex-col space-y-2">
+        <button onClick={()=>setTab('dashboard')} className={`p-2 rounded ${tab==='dashboard'?'bg-indigo-100 font-bold':''}`}>Dashboard</button>
+        <button onClick={()=>setTab('progress')} className={`p-2 rounded ${tab==='progress'?'bg-indigo-100 font-bold':''}`}>Progress</button>
+        <button onClick={()=>setTab('weekly')} className={`p-2 rounded ${tab==='weekly'?'bg-indigo-100 font-bold':''}`}>Weekly Log</button>
+        <button onClick={resetProgress} className="mt-4 p-2 bg-red-500 text-white rounded hover:bg-red-600">Reset Progress</button>
       </div>
 
       {/* Main Content */}
@@ -182,24 +162,28 @@ export default function App() {
         {tab==='progress' && (
           <div className="space-y-6">
             <div className="text-xl font-bold">Progress Summary</div>
-            {progressSummary.map(item=>(
-              <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
-                <div className="font-semibold mb-1">{item.exercise}</div>
-                <div className="text-sm text-gray-500">Initial: {item.first.weight}kg × {item.first.reps} reps</div>
-                <div className="text-sm">14d Avg: {item.avg14.avgWeight}kg ({item.pct14.weight||0}% vs start), {item.avg14.avgReps} reps ({item.pct14.reps||0}% vs start)</div>
-                <div className="text-sm">Month Avg: {item.avgMonth.avgWeight}kg ({item.pctMonth.weight||0}% vs start), {item.avgMonth.avgReps} reps ({item.pctMonth.reps||0}% vs start)</div>
-                <ResponsiveContainer width="100%" height={150}>
-                  <LineChart data={chartDataForExercise(item.exercise)}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="weight" stroke="#6366F1" />
-                    <Line type="monotone" dataKey="reps" stroke="#EC4899" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ))}
+            {Object.keys(exerciseMap).map(ex=>{
+              const logsEx = exerciseMap[ex];
+              const last = logsEx[logsEx.length-1];
+              const pct = getPercentageIncrease(last.day, ex, last.weight, last.reps);
+              return (
+                <div key={ex} className="p-3 rounded-xl bg-white shadow">
+                  <div className="font-semibold mb-1">{ex}</div>
+                  <div className="text-sm text-gray-500">Latest: {last.weight}kg × {last.reps} reps</div>
+                  <div className="text-sm text-green-600">+{pct.weightPct}% Weight, +{pct.repsPct}% Reps vs first</div>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <LineChart data={chartDataForExercise(ex)}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
+                      <YAxis />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="weight" stroke="#6366F1" />
+                      <Line type="monotone" dataKey="reps" stroke="#EC4899" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -214,7 +198,10 @@ export default function App() {
                   const logsEx = exerciseMap[ex]?.filter(l => l.day===d.day) || [];
                   return (
                     <div key={ex} className="text-sm">
-                      <strong>{ex}:</strong> {logsEx.map(l=>`${l.reps} reps × ${l.weight}kg`).join(', ') || 'No entry'}
+                      <strong>{ex}:</strong> {logsEx.map(l=>{
+                        const pct = getPercentageIncrease(d.day, ex, l.weight, l.reps);
+                        return `${l.reps} reps × ${l.weight}kg (+${pct.weightPct}%, +${pct.repsPct}%)`;
+                      }).join(', ') || 'No entry'}
                     </div>
                   );
                 })}
