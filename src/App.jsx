@@ -54,6 +54,12 @@ export default function App(){
     setSelectedExercise(null);
   }
 
+  // Mark rest explicitly
+  function markRest(day){
+    const newEntry = { id: uid(), date: format(new Date(),'yyyy-MM-dd'), day, exercise: 'Rest', set:0, reps:0, weight:0 };
+    setLogs(prev=>[...prev, newEntry]);
+  }
+
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
   const firstPerExercise = useMemo(()=>{
     const out = {}; Object.keys(exerciseMap).forEach(ex=>{
@@ -102,92 +108,95 @@ export default function App(){
     return out;
   }
 
-  const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
-
   return (
-    <div className={`min-h-screen ${primary} flex flex-col`}>
-      {/* Tabs */}
-      <div className="flex justify-around border-b bg-white sticky top-0 z-10">
-        <button onClick={()=>setTab('dashboard')} className={`flex-1 p-3 ${tab==='dashboard'?'font-bold text-indigo-600':'text-gray-600'}`}>Dashboard</button>
-        <button onClick={()=>setTab('progress')} className={`flex-1 p-3 ${tab==='progress'?'font-bold text-indigo-600':'text-gray-600'}`}>Progress</button>
+    <div className="min-h-screen flex bg-gradient-to-r from-indigo-100 via-white to-pink-50">
+      {/* Left Menu */}
+      <div className="w-56 bg-white shadow p-4 flex flex-col space-y-3">
+        <button onClick={()=>setTab('dashboard')} className={`p-2 text-left ${tab==='dashboard'?'font-bold text-indigo-600':'text-gray-600'}`}>Dashboard</button>
+        <button onClick={()=>setTab('progress')} className={`p-2 text-left ${tab==='progress'?'font-bold text-indigo-600':'text-gray-600'}`}>Progress</button>
+        <div className="mt-4 border-t pt-2">
+          {SPLIT.map(d=> d.muscle==='Rest' ? (
+            <button key={d.day} onClick={()=>markRest(d.day)} className="text-red-500 text-left w-full p-1 rounded hover:bg-red-50">{d.day} Rest</button>
+          ) : null)}
+        </div>
       </div>
 
-      {/* Dashboard */}
-      {tab==='dashboard' && (
-        <div className="p-4 space-y-4">
-          <div className="text-xl font-bold">Select a Day</div>
-          <div className="grid grid-cols-2 gap-3">
-            {SPLIT.map(d=>(
-              <button key={d.day} onClick={()=>{setSelectedDay(d.day); setShowPanel(true); setSelectedExercise(null);}} className="p-4 rounded-xl shadow bg-white text-left">
-                <div className="font-semibold">{d.day}</div>
-                <div className="text-xs text-gray-500">{d.muscle}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* Slide-in Panel */}
-          {showPanel && selectedDay && (
-            <div className="fixed inset-0 bg-black/40 flex justify-end">
-              <div className="bg-white w-80 p-4 overflow-y-auto">
-                <div className="flex justify-between items-center mb-3">
-                  <div className="font-bold">{selectedDay} Exercises</div>
-                  <button onClick={()=>setShowPanel(false)}>✕</button>
-                </div>
-                {!selectedExercise && (
-                  <div className="space-y-2">
-                    {(SPLIT.find(d=>d.day===selectedDay)?.exercises||[]).map(ex=>(
-                      <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">
-                        {ex}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {selectedExercise && (
-                  <div>
-                    <div className="font-semibold mb-2">{selectedExercise}</div>
-                    {setsInput.map((s,i)=>(
-                      <div key={i} className="flex items-center space-x-2 mb-2">
-                        <input type="number" value={s.reps} onChange={e=>updateSet(i,'reps',e.target.value)} className="border p-1 w-16" placeholder="Reps" />
-                        <input type="number" value={s.weight} onChange={e=>updateSet(i,'weight',e.target.value)} className="border p-1 w-20" placeholder="Weight" />
-                        <button onClick={()=>removeSet(i)} className="text-red-500">✕</button>
-                      </div>
-                    ))}
-                    <button onClick={addSetRow} className="px-3 py-1 bg-gray-200 rounded">+ Set</button>
-                    <button onClick={saveExercise} className="ml-2 px-3 py-1 bg-indigo-500 text-white rounded">Save</button>
-                  </div>
-                )}
-              </div>
+      {/* Main Content */}
+      <div className="flex-1 p-4 overflow-y-auto">
+        {tab==='dashboard' && (
+          <div className="space-y-4">
+            <div className="text-xl font-bold">Select a Day</div>
+            <div className="grid grid-cols-2 gap-3">
+              {SPLIT.map(d=>(
+                <button key={d.day} onClick={()=>openDay(d.day)} className="p-4 rounded-xl shadow bg-white text-left">
+                  <div className="font-semibold">{d.day}</div>
+                  <div className="text-xs text-gray-500">{d.muscle}</div>
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-      )}
 
-      {/* Progress */}
-      {tab==='progress' && (
-        <div className="p-4 space-y-6">
-          <div className="text-xl font-bold">Progress Summary</div>
-          <div className="grid gap-3">
-            {progressSummary.map(item=>(
-              <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
-                <div className="font-semibold mb-1">{item.exercise}</div>
-                <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
-                <div className="text-sm">14d Avg: {item.avg14.avgWeight}kg ({item.pct14.weight||0}% vs start), {item.avg14.avgReps} reps ({item.pct14.reps||0}% vs start)</div>
-                <div className="text-sm">Month Avg: {item.avgMonth.avgWeight}kg ({item.pctMonth.weight||0}% vs start), {item.avgMonth.avgReps} reps ({item.pctMonth.reps||0}% vs start)</div>
-                <ResponsiveContainer width="100%" height={150}>
-                  <LineChart data={chartDataForExercise(item.exercise)}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="weight" stroke="#6366F1" />
-                    <Line type="monotone" dataKey="reps" stroke="#EC4899" />
-                  </LineChart>
-                </ResponsiveContainer>
+            {showPanel && selectedDay && (
+              <div className="fixed inset-0 bg-black/40 flex justify-end">
+                <div className="bg-white w-80 p-4 overflow-y-auto">
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="font-bold">{selectedDay} Exercises</div>
+                    <button onClick={()=>setShowPanel(false)}>✕</button>
+                  </div>
+                  {!selectedExercise && (
+                    <div className="space-y-2">
+                      {(SPLIT.find(d=>d.day===selectedDay)?.exercises||[]).map(ex=>(
+                        <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">
+                          {ex}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {selectedExercise && (
+                    <div>
+                      <div className="font-semibold mb-2">{selectedExercise}</div>
+                      {setsInput.map((s,i)=>(
+                        <div key={i} className="flex items-center space-x-2 mb-2">
+                          <input type="number" value={s.reps} onChange={e=>updateSet(i,'reps',e.target.value)} className="border p-1 w-16" placeholder="Reps" />
+                          <input type="number" value={s.weight} onChange={e=>updateSet(i,'weight',e.target.value)} className="border p-1 w-20" placeholder="Weight" />
+                          <button onClick={()=>removeSet(i)} className="text-red-500">✕</button>
+                        </div>
+                      ))}
+                      <button onClick={addSetRow} className="px-3 py-1 bg-gray-200 rounded">+ Set</button>
+                      <button onClick={saveExercise} className="ml-2 px-3 py-1 bg-indigo-500 text-white rounded">Save</button>
+                    </div>
+                  )}
+                </div>
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      )}
+        )}
+
+        {tab==='progress' && (
+          <div className="space-y-6">
+            <div className="text-xl font-bold">Progress Summary</div>
+            <div className="grid gap-3">
+              {progressSummary.map(item=>(
+                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
+                  <div className="font-semibold mb-1">{item.exercise}</div>
+                  <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
+                  <div className="text-sm">14d Avg: {item.avg14.avgWeight}kg ({item.pct14.weight||0}% vs start), {item.avg14.avgReps} reps ({item.pct14.reps||0}% vs start)</div>
+                  <div className="text-sm">Month Avg: {item.avgMonth.avgWeight}kg ({item.pctMonth.weight||0}% vs start), {item.avgMonth.avgReps} reps ({item.pctMonth.reps||0}% vs start)</div>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <LineChart data={chartDataForExercise(item.exercise)}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
+                      <YAxis />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="weight" stroke="#6366F1" />
+                      <Line type="monotone" dataKey="reps" stroke="#EC4899" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
