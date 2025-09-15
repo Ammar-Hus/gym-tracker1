@@ -117,19 +117,48 @@ export default function App(){
         {/* Progress */}
         {tab==='progress' && (
           <div className="space-y-8">
-            <div className="text-2xl font-bold">📈 Progress Overview</div>
-            {progressSummary.map(item=>(
-              <div key={item.exercise} className="p-5 rounded-xl bg-white shadow-md hover:shadow-lg transition">
-                <div className="flex justify-between items-center mb-2">
-                  <div className="font-semibold text-lg">{item.exercise}</div>
-                  <span className="text-xs text-gray-500">Started: {item.first.date || 'N/A'}</span>
+            <div className="text-2xl font-bold mb-6 text-gray-800">📈 Progress Overview</div>
+
+            {progressSummary.map(item => (
+              <div 
+                key={item.exercise} 
+                className="p-5 rounded-xl bg-white shadow-md hover:shadow-lg transition border border-gray-100"
+              >
+                {/* Header */}
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <div className="font-semibold text-lg text-gray-900">{item.exercise}</div>
+                    <div className="text-xs text-gray-500">Started on: {item.first.date || 'N/A'}</div>
+                  </div>
+                  <div className="text-sm px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 font-medium">
+                    {item.avgMonth.count || 0} sessions
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm mb-3">
-                  <div className="p-2 bg-gray-50 rounded">Start: {item.first.weight}kg × {item.first.reps} reps</div>
-                  <div className="p-2 bg-green-50 rounded">14d: {item.avg14.avgWeight}kg ({item.pct14 || 0}%↑)</div>
-                  <div className="p-2 bg-blue-50 rounded">Month: {item.avgMonth.avgWeight}kg ({item.pctMonth || 0}%↑)</div>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm mb-4">
+                  <div className="p-3 rounded-lg bg-gray-50 border">
+                    <div className="text-gray-600">Starting Point</div>
+                    <div className="font-semibold">{item.first.weight} kg × {item.first.reps} reps</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-green-50 border">
+                    <div className="text-gray-600">Last 14 Days</div>
+                    <div className="font-semibold">{item.avg14.avgWeight} kg</div>
+                    <div className={`text-xs ${item.pct14 >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {item.pct14 ? `${item.pct14}%` : '0%'}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-blue-50 border">
+                    <div className="text-gray-600">This Month</div>
+                    <div className="font-semibold">{item.avgMonth.avgWeight} kg</div>
+                    <div className={`text-xs ${item.pctMonth >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      {item.pctMonth ? `${item.pctMonth}%` : '0%'}
+                    </div>
+                  </div>
                 </div>
-                <ResponsiveContainer width="100%" height={180}>
+
+                {/* Chart */}
+                <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={chartDataForExercise(item.exercise)}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
