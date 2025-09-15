@@ -1,225 +1,165 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { format, parseISO, subDays, startOfMonth, isAfter } from 'date-fns';
+import React, { useState, useEffect } from "react";
+import { format } from "date-fns";
 
-const SPLIT = [
-  { day: 'Monday', muscle: 'Chest + Triceps + Abs', exercises: ['Bench Press','Incline DB Press','Dips','Pushdowns','Overhead DB Extension','Plank','Deadbug','Woodchoppers'] },
-  { day: 'Tuesday', muscle: 'Back + Biceps + Abs', exercises: ['Pull-Ups','Barbell Rows','Seated Rows','Barbell Curls','DB Curls','Concentration Curl','Plank','Hanging Leg Raise'] },
-  { day: 'Wednesday', muscle: 'Legs + Shoulders + Abs', exercises: ['Squats','RDLs','Lunges','OHP','Lateral Raises','Rear Delt Flys','Hanging Leg Raise','Russian Twists'] },
-  { day: 'Thursday', muscle: 'Chest + Triceps + Abs', exercises: ['Incline Bench','Chest Flys','Push-Ups','Skullcrushers','Rope Pushdowns','Dips','Plank'] },
-  { day: 'Friday', muscle: 'Rest', exercises: [] },
-  { day: 'Saturday', muscle: 'Back + Biceps + Abs', exercises: ['Lat Pulldown','T-Bar Row','DB Row','Incline DB Curl','Hammer Curl','Cable Curl','Decline Crunch','V-Ups','Cable Crunch'] },
-  { day: 'Sunday', muscle: 'Legs + Shoulders + Abs', exercises: ['Leg Press','Leg Extension','Ham Curl','Arnold Press','Front Raise','Cable Lateral Raise','Stretch & Mobility','Plank'] }
-];
-
-const STORAGE_KEY = 'gympro_logs_v2';
-function uid(){ return Math.random().toString(36).slice(2,9); }
-
-function groupByExercise(logs){
-  const map = {};
-  logs.forEach(l=>{
-    if(!map[l.exercise]) map[l.exercise]=[];
-    map[l.exercise].push(l);
+const App = () => {
+  const [logs, setLogs] = useState(() => {
+    const saved = localStorage.getItem("workoutLogs");
+    return saved ? JSON.parse(saved) : {};
   });
-  Object.keys(map).forEach(k=> map[k].sort((a,b)=> a.date > b.date ? 1 : -1));
-  return map;
-}
+  const [activeExercise, setActiveExercise] = useState(null);
+  const [tab, setTab] = useState("log");
 
-export default function App(){
-  const [logs, setLogs] = useState(()=>{
-    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
-  });
-  const [selectedDay, setSelectedDay] = useState(null);
-  const [selectedExercise, setSelectedExercise] = useState(null);
-  const [showPanel, setShowPanel] = useState(false);
-  const [setsInput, setSetsInput] = useState([{set:1,reps:8,weight:0}]);
-  const [date, setDate] = useState(format(new Date(),'yyyy-MM-dd'));
-  const [tab, setTab] = useState('dashboard');
+  const exercises = {
+    Chest: ["Bench Press", "Incline Bench", "Dumbbell Fly"],
+    Back: ["Pull Up", "Lat Pulldown", "Deadlift"],
+    Legs: ["Squat", "Leg Press", "Lunges"],
+    Shoulders: ["Overhead Press", "Lateral Raise"],
+    Arms: ["Bicep Curl", "Tricep Dip"],
+    Abs: ["Plank", "Crunch", "Russian Twists", "V-Ups", "Hanging Leg Raise"],
+  };
 
-  useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
+  useEffect(() => {
+    localStorage.setItem("workoutLogs", JSON.stringify(logs));
+  }, [logs]);
 
-  function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); }
-  function openExercise(ex){ setSelectedExercise(ex); setSetsInput([{set:1,reps:8,weight:0}]); }
-  function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
-  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
-  function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
+  const openExercise = (ex) => {
+    setActiveExercise({ name: ex, reps: "", weight: "" });
+  };
 
-  function saveExercise(){
-    if(!selectedExercise) return;
-    const newEntries = setsInput.map(s=>({
-      id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
-      set: s.set, reps: Number(s.reps), weight: Number(s.weight)
-    }));
-    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
-    setSetsInput([{set:1,reps:8,weight:0}]);
-    setSelectedExercise(null);
-  }
-
-  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
-
-  function averageInRange(ex, startDate){
-    const arr = (exerciseMap[ex]||[]).filter(r=> isAfter(parseISO(r.date), subDays(parseISO(startDate),1)) || r.date===startDate );
-    if(!arr.length) return {avgReps:0, avgWeight:0, count:0};
-    const reps = arr.reduce((s,r)=>s + r.reps,0)/arr.length;
-    const weight = arr.reduce((s,r)=>s + r.weight,0)/arr.length;
-    return {avgReps: Math.round(reps*100)/100, avgWeight: Math.round(weight*100)/100, count: arr.length};
-  }
-
-  const day14Start = format(subDays(new Date(),13),'yyyy-MM-dd');
-  const monthStart = format(startOfMonth(new Date()),'yyyy-MM-dd');
-
-  const progressSummary = useMemo(()=>{
-    const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
-    return exs.map(ex=>{
-      const arr = exerciseMap[ex]||[];
-      const first = arr.length? arr[0]: {date:null, reps:0, weight:0};
-      const avg14 = averageInRange(ex, day14Start);
-      const avgMonth = averageInRange(ex, monthStart);
-      const pct14 = first.weight? Math.round(((avg14.avgWeight-first.weight)/first.weight)*100*100)/100 : null;
-      const pctMonth = first.weight? Math.round(((avgMonth.avgWeight-first.weight)/first.weight)*100*100)/100 : null;
-      return {exercise:ex, first, avg14, avgMonth, pct14, pctMonth};
+  const saveExercise = () => {
+    if (!activeExercise?.reps || !activeExercise?.weight) return;
+    const today = format(new Date(), "yyyy-MM-dd");
+    const entry = {
+      reps: Number(activeExercise.reps),
+      weight: Number(activeExercise.weight),
+      date: today,
+    };
+    setLogs((prev) => {
+      const copy = { ...prev };
+      if (!copy[activeExercise.name]) copy[activeExercise.name] = [];
+      copy[activeExercise.name].push(entry);
+      return copy;
     });
-  }, [exerciseMap]);
+    setActiveExercise(null);
+  };
 
-  function chartDataForExercise(ex){
-    const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
-    const map = {};
-    arr.forEach(a=>{ if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; });
-    return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
-  }
-
-  const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
-
-  return (
-    <div className={`min-h-screen ${primary} flex flex-col md:flex-row`}>
-      {/* Sidebar */}
-      <div className="md:w-64 p-4 bg-white shadow-md flex-shrink-0">
-        <div className="text-xl font-bold mb-4 text-center">Gym Tracker</div>
-        <button onClick={()=>setTab('dashboard')} className={`w-full p-2 mb-2 rounded ${tab==='dashboard'?'bg-indigo-500 text-white':'bg-gray-100'}`}>Dashboard</button>
-        <button onClick={()=>setTab('progress')} className={`w-full p-2 mb-2 rounded ${tab==='progress'?'bg-indigo-500 text-white':'bg-gray-100'}`}>Progress</button>
-        <button onClick={()=>setTab('weekly')} className={`w-full p-2 mb-2 rounded ${tab==='weekly'?'bg-indigo-500 text-white':'bg-gray-100'}`}>Weekly Strength</button>
-        <button onClick={()=>{localStorage.removeItem(STORAGE_KEY); setLogs([]);}} className="w-full p-2 mb-2 rounded bg-red-500 text-white">Reset All</button>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        {/* Dashboard */}
-        {tab==='dashboard' && (
-          <div className="space-y-4">
-            <div className="text-xl font-bold">Select a Day</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {SPLIT.map(d=>(
-                <button key={d.day} onClick={()=>openDay(d.day)} className="p-4 rounded-xl shadow bg-white text-left">
-                  <div className="font-semibold">{d.day}</div>
-                  <div className="text-xs text-gray-500">{d.muscle}</div>
-                </button>
-              ))}
-            </div>
-
-            {showPanel && selectedDay && (
-              <div className="fixed inset-0 bg-black/40 flex justify-center md:justify-end items-start pt-10 px-2">
-                <div className="bg-white dark:bg-gray-800 w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="font-bold">{selectedDay} Exercises</div>
-                    <button onClick={()=>setShowPanel(false)}>✕</button>
-                  </div>
-
-                  {!selectedExercise && (
-                    <div className="space-y-2">
-                      {(SPLIT.find(d=>d.day===selectedDay)?.exercises||[]).map(ex=>(
-                        <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">{ex}</button>
-                      ))}
-
-                      {/* Abs Manual Selection */}
-                      <div className="mt-3 text-sm font-semibold">Abs Exercises (select manually):</div>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {['Plank','Crunch','Russian Twists','V-Ups','Hanging Leg Raise'].map(ex=>(
-                          <button 
-                            key={ex} 
-                            onClick={()=>openExercise(ex)} 
-                            className="px-2 py-1 rounded bg-gray-100 hover:bg-indigo-200"
-                          >
-                            {ex}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedExercise && (
-                    <div>
-                      <div className="font-semibold mb-2">{selectedExercise}</div>
-                      {setsInput.map((s,i)=>(
-                        <div key={i} className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 mb-2">
-                          <input type="number" value={s.reps} onChange={e=>updateSet(i,'reps',e.target.value)} className="border p-1 w-full sm:w-16" placeholder="Reps" />
-                          <input type="number" value={s.weight} onChange={e=>updateSet(i,'weight',e.target.value)} className="border p-1 w-full sm:w-20" placeholder="Weight" />
-                          <button onClick={()=>removeSet(i)} className="text-red-500">✕</button>
-                        </div>
-                      ))}
-                      <div className="flex gap-2">
-                        <button onClick={addSetRow} className="px-3 py-1 bg-gray-200 rounded w-full sm:w-auto">+ Set</button>
-                        <button onClick={saveExercise} className="px-3 py-1 bg-indigo-500 text-white rounded w-full sm:w-auto">Save</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Progress */}
-        {tab==='progress' && (
-          <div className="space-y-6">
-            <div className="text-xl font-bold">Progress Summary</div>
-            <div className="grid gap-3">
-              {progressSummary.map(item=>(
-                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
-                  <div className="font-semibold mb-1">{item.exercise}</div>
-                  <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
-                  <div className="text-sm">14d Avg: {item.avg14.avgWeight}kg ({item.pct14||0}% vs start), {item.avg14.avgReps} reps</div>
-                  <div className="text-sm">Month Avg: {item.avgMonth.avgWeight}kg ({item.pctMonth||0}% vs start), {item.avgMonth.avgReps} reps</div>
-                  <ResponsiveContainer width="100%" height={150}>
-                    <LineChart data={chartDataForExercise(item.exercise)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="weight" stroke="#6366F1" />
-                      <Line type="monotone" dataKey="reps" stroke="#EC4899" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Weekly Strength Tab */}
-        {tab==='weekly' && (
-          <div>
-            <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {SPLIT.map(day=>(
-              <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
-                <div className="font-semibold">{day.day} ({day.muscle})</div>
-                {(day.exercises||[]).map(ex=>{
-                  const arr = exerciseMap[ex]||[];
-                  if(!arr.length) return null;
-                  const last = arr[arr.length-1];
-                  const first = arr[0];
-                  const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
-                  return (
-                    <div key={ex} className="text-sm text-gray-700">
-                      {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
-                    </div>
-                  );
-                })}
-              </div>
+  const renderLogTab = () => (
+    <div className="p-4">
+      {Object.entries(exercises).map(([group, exs]) => (
+        <div key={group} className="mb-4">
+          <h2 className="font-bold text-lg">{group}</h2>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {exs.map((ex) => (
+              <button
+                key={ex}
+                onClick={() => openExercise(ex)}
+                className="px-2 py-1 rounded bg-gray-100 hover:bg-indigo-200"
+              >
+                {ex}
+              </button>
             ))}
           </div>
-        )}
-
-      </div>
+        </div>
+      ))}
+      {activeExercise && (
+        <div className="mt-4 p-3 border rounded bg-gray-50">
+          <h3 className="font-semibold">{activeExercise.name}</h3>
+          <input
+            type="number"
+            placeholder="Reps"
+            value={activeExercise.reps}
+            onChange={(e) =>
+              setActiveExercise({ ...activeExercise, reps: e.target.value })
+            }
+            className="border p-1 rounded mr-2"
+          />
+          <input
+            type="number"
+            placeholder="Weight (kg)"
+            value={activeExercise.weight}
+            onChange={(e) =>
+              setActiveExercise({ ...activeExercise, weight: e.target.value })
+            }
+            className="border p-1 rounded mr-2"
+          />
+          <button
+            onClick={saveExercise}
+            className="bg-indigo-500 text-white px-3 py-1 rounded"
+          >
+            Save
+          </button>
+        </div>
+      )}
     </div>
   );
-}
+
+  const renderProgressTab = () => (
+    <div className="p-4">
+      {Object.keys(logs).length === 0 && (
+        <p className="text-gray-500">No progress yet.</p>
+      )}
+      {Object.entries(logs).map(([ex, entries]) => {
+        if (entries.length === 0) return null;
+
+        const first = entries[0];
+        const last = entries[entries.length - 1];
+
+        const weightChange = last.weight - first.weight;
+        const repsChange = last.reps - first.reps;
+
+        const weightPercent =
+          first.weight > 0
+            ? ((weightChange / first.weight) * 100).toFixed(1)
+            : "0";
+        const repsPercent =
+          first.reps > 0 ? ((repsChange / first.reps) * 100).toFixed(1) : "0";
+
+        return (
+          <div key={ex} className="mb-3 p-3 border rounded bg-gray-50">
+            <h3 className="font-semibold">{ex}</h3>
+            <p>
+              Weight: {first.weight}kg → {last.weight}kg{" "}
+              {entries.length > 1 && (
+                <span className="text-sm text-gray-600">
+                  ({weightChange >= 0 ? "+" : ""}
+                  {weightChange}kg, {weightPercent}%)
+                </span>
+              )}
+            </p>
+            <p>
+              Reps: {first.reps} → {last.reps}{" "}
+              {entries.length > 1 && (
+                <span className="text-sm text-gray-600">
+                  ({repsChange >= 0 ? "+" : ""}
+                  {repsChange}, {repsPercent}%)
+                </span>
+              )}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex justify-around p-3 border-b">
+        <button
+          className={tab === "log" ? "font-bold" : ""}
+          onClick={() => setTab("log")}
+        >
+          Log Workout
+        </button>
+        <button
+          className={tab === "progress" ? "font-bold" : ""}
+          onClick={() => setTab("progress")}
+        >
+          Progress
+        </button>
+      </div>
+      {tab === "log" ? renderLogTab() : renderProgressTab()}
+    </div>
+  );
+};
+
+export default App;
