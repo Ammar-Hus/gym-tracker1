@@ -35,16 +35,14 @@ export default function App(){
   const [setsInput, setSetsInput] = useState([{set:1,reps:8,weight:0}]);
   const [date, setDate] = useState(format(new Date(),'yyyy-MM-dd'));
   const [tab, setTab] = useState('dashboard');
-  const [absSelected, setAbsSelected] = useState([]);
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
 
-  function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); setAbsSelected([]); }
+  function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); }
   function openExercise(ex){ setSelectedExercise(ex); setSetsInput([{set:1,reps:8,weight:0}]); }
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
   function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
-  function toggleAbs(ex){ setAbsSelected(prev=> prev.includes(ex)? prev.filter(a=>a!==ex) : [...prev,ex]); }
 
   function saveExercise(){
     if(!selectedExercise) return;
@@ -52,11 +50,7 @@ export default function App(){
       id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
       set: s.set, reps: Number(s.reps), weight: Number(s.weight)
     }));
-    const absEntries = absSelected.map(ex=>({
-      id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: ex,
-      set: 1, reps: 0, weight: 0
-    }));
-    setLogs(prev=>[...prev, ...newEntries, ...absEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
+    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
     setSetsInput([{set:1,reps:8,weight:0}]);
     setSelectedExercise(null);
   }
@@ -136,10 +130,17 @@ export default function App(){
                         <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">{ex}</button>
                       ))}
 
+                      {/* Abs Manual Selection */}
                       <div className="mt-3 text-sm font-semibold">Abs Exercises (select manually):</div>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {['Plank','Crunch','Russian Twists','V-Ups','Hanging Leg Raise'].map(ex=>(
-                          <button key={ex} onClick={()=>toggleAbs(ex)} className={`px-2 py-1 rounded ${absSelected.includes(ex)?'bg-indigo-500 text-white':'bg-gray-100'}`}>{ex}</button>
+                          <button 
+                            key={ex} 
+                            onClick={()=>openExercise(ex)} 
+                            className="px-2 py-1 rounded bg-gray-100 hover:bg-indigo-200"
+                          >
+                            {ex}
+                          </button>
                         ))}
                       </div>
                     </div>
