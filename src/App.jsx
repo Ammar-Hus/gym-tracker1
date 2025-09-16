@@ -14,7 +14,6 @@ const SPLIT = [
 
 const STORAGE_KEY = 'gympro_logs_v2';
 const CUSTOM_ABS_KEY = 'gympro_custom_abs';
-
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
 function groupByExercise(logs){
@@ -30,7 +29,6 @@ function groupByExercise(logs){
 export default function App(){
   const [logs, setLogs] = useState(()=>{ try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
   const [customAbs, setCustomAbs] = useState(()=>{ try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
-
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [showPanel, setShowPanel] = useState(false);
@@ -79,31 +77,33 @@ export default function App(){
     setCustomAbs(prev=> prev.filter(x=>x!==name));
   }
 
+  function deleteLog(id){ setLogs(prev=> prev.filter(l=>l.id!==id)); }
+
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
 
   const progressSummary = useMemo(()=>{
     const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
-      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null};
+      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null};
       const first = arr[0];
       const latest = arr[arr.length-1];
       const weightDiff = latest.weight - first.weight;
       const repsDiff = latest.reps - first.reps;
       const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
       const pctReps = first.reps? Math.round((repsDiff/first.reps)*100*100)/100 : null;
-      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps, sets: arr};
+      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps};
     });
   }, [exerciseMap]);
 
   function chartDataForExercise(ex){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
     const map = {};
-    arr.forEach(a=>{ 
-      if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; 
-      map[a.date].weightSum += a.weight; 
-      map[a.date].repsSum += a.reps; 
-      map[a.date].count +=1; 
+    arr.forEach(a=>{
+      if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0};
+      map[a.date].weightSum += a.weight;
+      map[a.date].repsSum += a.reps;
+      map[a.date].count +=1;
     });
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
@@ -123,7 +123,6 @@ export default function App(){
 
       {/* Main Content */}
       <div className="flex-1 p-4 overflow-y-auto">
-
         {/* Dashboard */}
         {tab==='dashboard' && (
           <div className="space-y-4">
@@ -139,7 +138,7 @@ export default function App(){
 
             {showPanel && selectedDay && (
               <div className="fixed inset-0 bg-black/40 flex justify-center md:justify-end items-start pt-10 px-2">
-                <div className="bg-white dark:bg-gray-800 w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
+                <div className="bg-white w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-bold">{selectedDay} Exercises</div>
                     <button onClick={()=>setShowPanel(false)}>✕</button>
@@ -213,23 +212,12 @@ export default function App(){
                       <div className="text-sm">Weight Change: {item.weightDiff}kg ({item.pctWeight || 0}%)</div>
                       <div className="text-sm">Reps Change: {item.repsDiff} reps ({item.pctReps || 0}%)</div>
 
-                      {/* Editable log */}
-                      <div className="mt-2 border-t pt-2">
-                        {item.sets.map((s,i)=>(
-                          <div key={s.id} className="flex gap-2 items-center mb-1">
-                            <input type="number" value={s.reps} onChange={e=>{
-                              const copy = [...logs]; 
-                              const idx = copy.findIndex(x=>x.id===s.id); 
-                              if(idx>=0){ copy[idx].reps = Number(e.target.value); setLogs(copy); }
-                            }} className="border p-1 w-16" />
-                            <input type="number" value={s.weight} onChange={e=>{
-                              const copy = [...logs]; 
-                              const idx = copy.findIndex(x=>x.id===s.id); 
-                              if(idx>=0){ copy[idx].weight = Number(e.target.value); setLogs(copy); }
-                            }} className="border p-1 w-20" />
-                            <button onClick={()=>{
-                              setLogs(prev=> prev.filter(x=>x.id!==s.id));
-                            }} className="text-red-500">Delete</button>
+                      {/* Edit/Delete logs */}
+                      <div className="mt-2 space-y-1">
+                        {logs.filter(l=>l.exercise===item.exercise).map(l=>(
+                          <div key={l.id} className="flex items-center gap-2 text-sm">
+                            <div>{l.date} - Set {l.set}: {l.weight}kg × {l.reps} reps</div>
+                            <button onClick={()=>deleteLog(l.id)} className="text-red-500">✕</button>
                           </div>
                         ))}
                       </div>
@@ -259,17 +247,21 @@ export default function App(){
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
             {SPLIT.map(day=>{
               const defaultExercises = day.exercises || [];
-              const customExercises = customAbs.filter(ex=>!defaultExercises.includes(ex));
-              const allExercises = [...defaultExercises, ...customExercises];
+              // Custom exercises logged on this day only
+              const customExercisesLogged = logs
+                .filter(log => log.day === day.day && !defaultExercises.includes(log.exercise))
+                .map(log => log.exercise);
+              const uniqueCustomExercises = [...new Set(customExercisesLogged)];
+              const allExercises = [...defaultExercises, ...uniqueCustomExercises];
 
               return (
                 <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
                   <div className="font-semibold">{day.day} ({day.muscle})</div>
                   {allExercises.map(ex=>{
-                    const arr = exerciseMap[ex]||[];
+                    const arr = logs.filter(l=>l.exercise===ex && l.day===day.day);
                     if(!arr.length) return null;
-                    const last = arr[arr.length-1];
                     const first = arr[0];
+                    const last = arr[arr.length-1];
                     const pctWeight = first.weight ? Math.round(((last.weight - first.weight)/first.weight)*100*100)/100 : null;
                     const pctReps = first.reps ? Math.round(((last.reps - first.reps)/first.reps)*100*100)/100 : null;
                     return (
