@@ -14,7 +14,6 @@ const SPLIT = [
 
 const STORAGE_KEY = 'gympro_logs_v2';
 const CUSTOM_ABS_KEY = 'gympro_custom_abs';
-
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
 function groupByExercise(logs){
@@ -28,8 +27,12 @@ function groupByExercise(logs){
 }
 
 export default function App(){
-  const [logs, setLogs] = useState(()=>{ try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
-  const [customAbs, setCustomAbs] = useState(()=>{ try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
+  const [logs, setLogs] = useState(()=>{
+    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
+  });
+  const [customAbs, setCustomAbs] = useState(()=>{
+    try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
+  });
 
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
@@ -39,7 +42,7 @@ export default function App(){
   const [tab, setTab] = useState('dashboard');
   const [addingAbs, setAddingAbs] = useState(false);
   const [newAbsName, setNewAbsName] = useState("");
-  const [expandedLogs, setExpandedLogs] = useState({}); // for collapsible log panels
+  const [editingLogId, setEditingLogId] = useState(null);
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
   useEffect(()=>{ localStorage.setItem(CUSTOM_ABS_KEY, JSON.stringify(customAbs)); },[customAbs]);
@@ -80,28 +83,37 @@ export default function App(){
     setCustomAbs(prev=> prev.filter(x=>x!==name));
   }
 
-  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
-
-  function toggleExpand(ex){ setExpandedLogs(prev=>({...prev,[ex]:!prev[ex]})); }
-
-  function updateLog(exId, field, value){
-    setLogs(prev=> prev.map(l=> l.id===exId ? {...l, [field]: Number(value)} : l));
+  function deleteLog(id){
+    setLogs(prev=> prev.filter(l=>l.id!==id));
   }
 
+  function startEditLog(log){
+    setEditingLogId(log.id);
+    setSetsInput([{...log}]);
+  }
+
+  function saveEditLog(){
+    setLogs(prev=> prev.map(l=> l.id===editingLogId ? {...l, reps: Number(setsInput[0].reps), weight: Number(setsInput[0].weight)} : l));
+    setEditingLogId(null);
+    setSetsInput([{set:1,reps:8,weight:0}]);
+  }
+
+  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
+
   const progressSummary = useMemo(()=>{
-    const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
+    const exs = Array.from(new Set([...Object.keys(exerciseMap), ...SPLIT.flatMap(s=>s.exercises), ...customAbs]));
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
-      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null};
+      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, logs:[]};
       const first = arr[0];
       const latest = arr[arr.length-1];
       const weightDiff = latest.weight - first.weight;
       const repsDiff = latest.reps - first.reps;
       const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
       const pctReps = first.reps? Math.round((repsDiff/first.reps)*100*100)/100 : null;
-      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps, logs: arr};
+      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps, logs:arr};
     });
-  }, [exerciseMap]);
+  }, [exerciseMap, customAbs]);
 
   function chartDataForExercise(ex){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
@@ -205,11 +217,8 @@ export default function App(){
             <div className="text-xl font-bold">Progress Summary</div>
             <div className="grid gap-3">
               {progressSummary.map(item=>(
-                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
-                  <div className="flex justify-between items-center">
-                    <div className="font-semibold">{item.exercise}</div>
-                    <button onClick={()=>toggleExpand(item.exercise)} className="text-sm text-indigo-500">{expandedLogs[item.exercise] ? 'Hide Logs' : 'View/Edit Logs'}</button>
-                  </div>
+                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
+                  <div className="font-semibold mb-1">{item.exercise}</div>
                   {item.first && item.latest ? (
                     <>
                       <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
@@ -221,15 +230,25 @@ export default function App(){
                     <div className="text-sm text-gray-400">No logs yet</div>
                   )}
 
-                  {expandedLogs[item.exercise] && item.logs.length>0 && (
-                    <div className="mt-2 max-h-64 overflow-y-auto border-t pt-2">
-                      {item.logs.map(l=>(
-                        <div key={l.id} className="flex items-center gap-2 mb-1">
-                          <div className="text-xs w-20">{l.date}</div>
-                          <input type="number" value={l.reps} onChange={e=>updateLog(l.id,'reps',e.target.value)} className="border p-1 w-12 text-xs" />
-                          <input type="number" value={l.weight} onChange={e=>updateLog(l.id,'weight',e.target.value)} className="border p-1 w-16 text-xs" />
+                  {/* Edit & Delete Logs */}
+                  {item.logs.length > 0 && (
+                    <div className="mt-2 border-t pt-2">
+                      {item.logs.map(log=>(
+                        <div key={log.id} className="flex items-center gap-2 mb-1">
+                          <span className="text-sm">{log.date}: {log.weight}kg × {log.reps} reps</span>
+                          <button onClick={()=>startEditLog(log)} className="text-blue-500 text-xs">Edit</button>
+                          <button onClick={()=>deleteLog(log.id)} className="text-red-500 text-xs">Delete</button>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {editingLogId && item.logs.find(l=>l.id===editingLogId) && (
+                    <div className="mt-2 flex gap-2">
+                      <input type="number" value={setsInput[0].reps} onChange={e=>updateSet(0,'reps',e.target.value)} className="border p-1 w-16" />
+                      <input type="number" value={setsInput[0].weight} onChange={e=>updateSet(0,'weight',e.target.value)} className="border p-1 w-20" />
+                      <button onClick={saveEditLog} className="px-2 bg-green-500 text-white rounded text-sm">Save</button>
+                      <button onClick={()=>setEditingLogId(null)} className="px-2 bg-gray-300 rounded text-sm">Cancel</button>
                     </div>
                   )}
 
@@ -253,23 +272,31 @@ export default function App(){
         {tab==='weekly' && (
           <div>
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {SPLIT.map(day=>(
-              <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
-                <div className="font-semibold">{day.day} ({day.muscle})</div>
-                {(day.exercises||[]).map(ex=>{
-                  const arr = exerciseMap[ex]||[];
-                  if(!arr.length) return null;
-                  const last = arr[arr.length-1];
-                  const first = arr[0];
-                  const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
-                  return (
-                    <div key={ex} className="text-sm text-gray-700">
-                      {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+            {SPLIT.map(day=>{
+              // get all exercises for this day that have logs
+              const allExercises = Array.from(new Set([
+                ...(day.exercises||[]), 
+                ...logs.filter(l=>l.day===day.day).map(l=>l.exercise)
+              ]));
+
+              return (
+                <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
+                  <div className="font-semibold">{day.day} ({day.muscle})</div>
+                  {allExercises.map(ex=>{
+                    const arr = exerciseMap[ex]?.filter(l=>l.day===day.day) || [];
+                    if(!arr.length) return null;
+                    const last = arr[arr.length-1];
+                    const first = arr[0];
+                    const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
+                    return (
+                      <div key={ex} className="text-sm text-gray-700">
+                        {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
