@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, subDays, startOfMonth, isAfter } from 'date-fns';
 
 const SPLIT = [
   { day: 'Monday', muscle: 'Chest + Triceps + Abs', exercises: ['Bench Press','Incline DB Press','Dips','Pushdowns','Overhead DB Extension','Plank','Deadbug','Woodchoppers'] },
@@ -27,8 +27,8 @@ function groupByExercise(logs){
 }
 
 export default function App(){
-  const [logs, setLogs] = useState(()=>{try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}});
-  const [customAbs, setCustomAbs] = useState(()=>{try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}});
+  const [logs, setLogs] = useState(()=>{ try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
+  const [customAbs, setCustomAbs] = useState(()=>{ try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
 
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
@@ -38,29 +38,71 @@ export default function App(){
   const [tab, setTab] = useState('dashboard');
   const [addingAbs, setAddingAbs] = useState(false);
   const [newAbsName, setNewAbsName] = useState("");
+  const [editingLogId, setEditingLogId] = useState(null);
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
   useEffect(()=>{ localStorage.setItem(CUSTOM_ABS_KEY, JSON.stringify(customAbs)); },[customAbs]);
 
-  function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); }
-  function openExercise(ex){ setSelectedExercise(ex); setSetsInput([{set:1,reps:8,weight:0}]); }
+  function openDay(day){ 
+    setSelectedDay(day); 
+    setSelectedExercise(null); 
+    setShowPanel(true); 
+    setSetsInput([{set:1,reps:8,weight:0}]); 
+  }
+
+  function openExercise(ex){ 
+    setSelectedExercise(ex); 
+    setSetsInput([{set:1,reps:8,weight:0}]); 
+  }
+
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
-  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
+  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=Number(val); setSetsInput(copy); }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
 
   function saveExercise(){
     if(!selectedExercise) return;
-    const newEntries = setsInput.map(s=>({
-      id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
-      set: s.set, reps: Number(s.reps), weight: Number(s.weight)
-    }));
-    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
+    if(editingLogId){
+      // Editing existing logs
+      setLogs(prev=>{
+        const copy = prev.map(l=>{
+          if(l.id === editingLogId){
+            return {...l, reps: setsInput[0].reps, weight: setsInput[0].weight};
+          }
+          return l;
+        });
+        return copy.sort((a,b)=> a.date > b.date ? 1 : -1);
+      });
+      setEditingLogId(null);
+    } else {
+      const newEntries = setsInput.map(s=>({
+        id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
+        set: s.set, reps: Number(s.reps), weight: Number(s.weight)
+      }));
+      setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
+    }
     setSetsInput([{set:1,reps:8,weight:0}]);
     setSelectedExercise(null);
   }
 
-  function addCustomAbs(){ if(newAbsName.trim()){ setCustomAbs(prev=>[...prev,newAbsName.trim()]); setNewAbsName(""); setAddingAbs(false); } }
-  function deleteCustomAbs(name){ setCustomAbs(prev=> prev.filter(x=>x!==name)); }
+  function startEditLog(log){
+    setEditingLogId(log.id);
+    setSelectedExercise(log.exercise);
+    setSetsInput([{set: log.set, reps: log.reps, weight: log.weight}]);
+    setShowPanel(true);
+    setSelectedDay(log.day);
+  }
+
+  function addCustomAbs(){
+    if(newAbsName.trim()){
+      setCustomAbs(prev=>[...prev,newAbsName.trim()]);
+      setNewAbsName("");
+      setAddingAbs(false);
+    }
+  }
+
+  function deleteCustomAbs(name){
+    setCustomAbs(prev=> prev.filter(x=>x!==name));
+  }
 
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
 
@@ -69,7 +111,8 @@ export default function App(){
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
       if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null};
-      const first = arr[0]; const latest = arr[arr.length-1];
+      const first = arr[0];
+      const latest = arr[arr.length-1];
       const weightDiff = latest.weight - first.weight;
       const repsDiff = latest.reps - first.reps;
       const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
@@ -81,10 +124,7 @@ export default function App(){
   function chartDataForExercise(ex){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
     const map = {};
-    arr.forEach(a=>{ 
-      if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; 
-      map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; 
-    });
+    arr.forEach(a=>{ if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; });
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
@@ -121,7 +161,7 @@ export default function App(){
                 <div className="bg-white dark:bg-gray-800 w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-bold">{selectedDay} Exercises</div>
-                    <button onClick={()=>setShowPanel(false)}>✕</button>
+                    <button onClick={()=>{setShowPanel(false); setSelectedExercise(null); setEditingLogId(null)}}>✕</button>
                   </div>
 
                   {!selectedExercise && (
@@ -152,6 +192,19 @@ export default function App(){
                           <button onClick={()=>{setAddingAbs(false);setNewAbsName("");}} className="px-2 bg-gray-300 rounded">Cancel</button>
                         </div>
                       )}
+
+                      {/* Logged Entries Edit */}
+                      <div className="mt-4">
+                        <div className="font-semibold mb-1">Edit Logged Entries</div>
+                        {logs.filter(l=>l.day===selectedDay).map(l=>(
+                          <div key={l.id} className="flex justify-between items-center bg-gray-50 p-1 rounded mb-1 text-sm">
+                            <div>{l.exercise}: {l.weight}kg × {l.reps}</div>
+                            <button onClick={()=>startEditLog(l)} className="text-blue-500">Edit</button>
+                          </div>
+                        ))}
+                        {logs.filter(l=>l.day===selectedDay).length===0 && <div className="text-gray-400 text-sm">No logs to edit</div>}
+                      </div>
+
                     </div>
                   )}
 
@@ -167,10 +220,11 @@ export default function App(){
                       ))}
                       <div className="flex gap-2">
                         <button onClick={addSetRow} className="px-3 py-1 bg-gray-200 rounded w-full sm:w-auto">+ Set</button>
-                        <button onClick={saveExercise} className="px-3 py-1 bg-indigo-500 text-white rounded w-full sm:w-auto">Save</button>
+                        <button onClick={saveExercise} className="px-3 py-1 bg-indigo-500 text-white rounded w-full sm:w-auto">{editingLogId?'Save Edit':'Save'}</button>
                       </div>
                     </div>
                   )}
+
                 </div>
               </div>
             )}
@@ -215,28 +269,23 @@ export default function App(){
         {tab==='weekly' && (
           <div>
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {SPLIT.map(day=>{
-              // Merge SPLIT exercises + any custom/existing exercises
-              const dayExercises = [...new Set([...(day.exercises||[]), ...Object.keys(exerciseMap)])];
-
-              return (
-                <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
-                  <div className="font-semibold">{day.day} ({day.muscle})</div>
-                  {dayExercises.map(ex=>{
-                    const arr = exerciseMap[ex]?.filter(l=>l.day===day.day)||[];
-                    if(!arr.length) return null;
-                    const last = arr[arr.length-1];
-                    const first = arr[0];
-                    const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
-                    return (
-                      <div key={ex} className="text-sm text-gray-700">
-                        {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+            {SPLIT.map(day=>(
+              <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
+                <div className="font-semibold">{day.day} ({day.muscle})</div>
+                {(day.exercises||[]).concat(customAbs).map(ex=>{
+                  const arr = exerciseMap[ex]||[];
+                  if(!arr.length) return null;
+                  const last = arr[arr.length-1];
+                  const first = arr[0];
+                  const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
+                  return (
+                    <div key={ex} className="text-sm text-gray-700">
+                      {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         )}
       </div>
