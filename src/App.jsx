@@ -40,9 +40,12 @@ export default function App(){
   const [setsInput, setSetsInput] = useState([{set:1,reps:8,weight:0}]);
   const [date, setDate] = useState(format(new Date(),'yyyy-MM-dd'));
   const [tab, setTab] = useState('dashboard');
+
+  // Progress sliding panel
+  const [activeLogExercise, setActiveLogExercise] = useState(null);
+
   const [addingAbs, setAddingAbs] = useState(false);
   const [newAbsName, setNewAbsName] = useState("");
-  const [editingLogId, setEditingLogId] = useState(null);
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
   useEffect(()=>{ localStorage.setItem(CUSTOM_ABS_KEY, JSON.stringify(customAbs)); },[customAbs]);
@@ -83,35 +86,20 @@ export default function App(){
     setCustomAbs(prev=> prev.filter(x=>x!==name));
   }
 
-  function deleteLog(id){
-    setLogs(prev=> prev.filter(l=>l.id!==id));
-  }
-
-  function startEditLog(log){
-    setEditingLogId(log.id);
-    setSetsInput([{...log}]);
-  }
-
-  function saveEditLog(){
-    setLogs(prev=> prev.map(l=> l.id===editingLogId ? {...l, reps: Number(setsInput[0].reps), weight: Number(setsInput[0].weight)} : l));
-    setEditingLogId(null);
-    setSetsInput([{set:1,reps:8,weight:0}]);
-  }
-
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
 
   const progressSummary = useMemo(()=>{
     const exs = Array.from(new Set([...Object.keys(exerciseMap), ...SPLIT.flatMap(s=>s.exercises), ...customAbs]));
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
-      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, logs:[]};
+      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null};
       const first = arr[0];
       const latest = arr[arr.length-1];
       const weightDiff = latest.weight - first.weight;
       const repsDiff = latest.reps - first.reps;
       const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
       const pctReps = first.reps? Math.round((repsDiff/first.reps)*100*100)/100 : null;
-      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps, logs:arr};
+      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps};
     });
   }, [exerciseMap, customAbs]);
 
@@ -120,6 +108,15 @@ export default function App(){
     const map = {};
     arr.forEach(a=>{ if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; });
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
+  }
+
+  function editLog(id, field, value){
+    setLogs(prev=>{
+      return prev.map(l=> l.id===id? {...l, [field]: Number(value)} : l);
+    });
+  }
+  function deleteLog(id){
+    setLogs(prev=> prev.filter(l=> l.id!==id));
   }
 
   const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
@@ -217,8 +214,14 @@ export default function App(){
             <div className="text-xl font-bold">Progress Summary</div>
             <div className="grid gap-3">
               {progressSummary.map(item=>(
-                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
-                  <div className="font-semibold mb-1">{item.exercise}</div>
+                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto relative">
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="font-semibold">{item.exercise}</div>
+                    <button onClick={()=>setActiveLogExercise(activeLogExercise===item.exercise?null:item.exercise)} className="px-2 py-1 bg-indigo-200 rounded text-sm">
+                      {activeLogExercise===item.exercise?'Hide Logs':'View Logs'}
+                    </button>
+                  </div>
+
                   {item.first && item.latest ? (
                     <>
                       <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
@@ -228,28 +231,6 @@ export default function App(){
                     </>
                   ) : (
                     <div className="text-sm text-gray-400">No logs yet</div>
-                  )}
-
-                  {/* Edit & Delete Logs */}
-                  {item.logs.length > 0 && (
-                    <div className="mt-2 border-t pt-2">
-                      {item.logs.map(log=>(
-                        <div key={log.id} className="flex items-center gap-2 mb-1">
-                          <span className="text-sm">{log.date}: {log.weight}kg × {log.reps} reps</span>
-                          <button onClick={()=>startEditLog(log)} className="text-blue-500 text-xs">Edit</button>
-                          <button onClick={()=>deleteLog(log.id)} className="text-red-500 text-xs">Delete</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {editingLogId && item.logs.find(l=>l.id===editingLogId) && (
-                    <div className="mt-2 flex gap-2">
-                      <input type="number" value={setsInput[0].reps} onChange={e=>updateSet(0,'reps',e.target.value)} className="border p-1 w-16" />
-                      <input type="number" value={setsInput[0].weight} onChange={e=>updateSet(0,'weight',e.target.value)} className="border p-1 w-20" />
-                      <button onClick={saveEditLog} className="px-2 bg-green-500 text-white rounded text-sm">Save</button>
-                      <button onClick={()=>setEditingLogId(null)} className="px-2 bg-gray-300 rounded text-sm">Cancel</button>
-                    </div>
                   )}
 
                   <ResponsiveContainer width="100%" height={150}>
@@ -262,6 +243,26 @@ export default function App(){
                       <Line type="monotone" dataKey="reps" stroke="#EC4899" />
                     </LineChart>
                   </ResponsiveContainer>
+
+                  {/* Sliding Logs Panel */}
+                  {activeLogExercise===item.exercise && (
+                    <div className="absolute top-0 right-0 w-80 max-h-[400px] bg-white shadow-xl p-3 overflow-y-auto border-l">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="font-semibold text-lg">{item.exercise} Logs</div>
+                        <button onClick={()=>setActiveLogExercise(null)}>✕</button>
+                      </div>
+                      {exerciseMap[item.exercise]?.map(log=>(
+                        <div key={log.id} className="mb-2 border-b pb-1">
+                          <div className="flex items-center gap-2">
+                            <input type="number" value={log.reps} onChange={e=>editLog(log.id,'reps',e.target.value)} className="border p-1 w-16"/>
+                            <input type="number" value={log.weight} onChange={e=>editLog(log.id,'weight',e.target.value)} className="border p-1 w-20"/>
+                            <span className="text-xs text-gray-400">{log.date}</span>
+                            <button onClick={()=>deleteLog(log.id)} className="text-red-500 text-sm">Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -272,30 +273,17 @@ export default function App(){
         {tab==='weekly' && (
           <div>
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {SPLIT.map(day=>{
-              // get all exercises for this day that have logs
-              const allExercises = Array.from(new Set([
-                ...(day.exercises||[]), 
-                ...logs.filter(l=>l.day===day.day).map(l=>l.exercise)
-              ]));
-
+            {Array.from(new Set([...SPLIT.flatMap(d=>d.exercises), ...customAbs])).map(ex=>{
+              const arr = exerciseMap[ex]||[];
+              if(!arr.length) return null;
+              const last = arr[arr.length-1];
+              const first = arr[0];
+              const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
               return (
-                <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
-                  <div className="font-semibold">{day.day} ({day.muscle})</div>
-                  {allExercises.map(ex=>{
-                    const arr = exerciseMap[ex]?.filter(l=>l.day===day.day) || [];
-                    if(!arr.length) return null;
-                    const last = arr[arr.length-1];
-                    const first = arr[0];
-                    const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
-                    return (
-                      <div key={ex} className="text-sm text-gray-700">
-                        {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
-                      </div>
-                    );
-                  })}
+                <div key={ex} className="mb-2 p-3 rounded-xl bg-white shadow text-sm">
+                  {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑':'New'})
                 </div>
-              )
+              );
             })}
           </div>
         )}
