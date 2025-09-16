@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { format, parseISO, subDays, startOfMonth, isAfter } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 const SPLIT = [
   { day: 'Monday', muscle: 'Chest + Triceps + Abs', exercises: ['Bench Press','Incline DB Press','Dips','Pushdowns','Overhead DB Extension','Plank','Deadbug','Woodchoppers'] },
@@ -14,7 +14,6 @@ const SPLIT = [
 
 const STORAGE_KEY = 'gympro_logs_v2';
 const CUSTOM_ABS_KEY = 'gympro_custom_abs';
-
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
 function groupByExercise(logs){
@@ -28,12 +27,8 @@ function groupByExercise(logs){
 }
 
 export default function App(){
-  const [logs, setLogs] = useState(()=>{ 
-    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} 
-  });
-  const [customAbs, setCustomAbs] = useState(()=>{ 
-    try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} 
-  });
+  const [logs, setLogs] = useState(()=>{ try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
+  const [customAbs, setCustomAbs] = useState(()=>{ try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
 
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
@@ -58,7 +53,7 @@ export default function App(){
     setSetsInput([{set:1,reps:8,weight:0}]); 
   }
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
-  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=Number(val); setSetsInput(copy); }
+  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
 
   function saveExercise(){
@@ -84,7 +79,7 @@ export default function App(){
   }
 
   function deleteLog(id){
-    setLogs(prev=>prev.filter(l=>l.id!==id));
+    setLogs(prev=> prev.filter(l=>l.id!==id));
   }
 
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
@@ -93,22 +88,21 @@ export default function App(){
     const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
-      if(!arr.length) return {exercise:ex, first:null, latest:null, logs:[]};
+      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:0, pctReps:0, entries:[]};
       const first = arr[0];
       const latest = arr[arr.length-1];
-      return {exercise:ex, first, latest, logs: arr};
+      const weightDiff = latest.weight - first.weight;
+      const repsDiff = latest.reps - first.reps;
+      const pctWeight = first.weight ? Math.round((weightDiff / first.weight) * 100 * 100)/100 : 0;
+      const pctReps = first.reps ? Math.round((repsDiff / first.reps) * 100 * 100)/100 : 0;
+      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps, entries:arr};
     });
   }, [exerciseMap]);
 
   function chartDataForExercise(ex){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
     const map = {};
-    arr.forEach(a=>{ 
-      if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; 
-      map[a.date].weightSum += a.weight; 
-      map[a.date].repsSum += a.reps; 
-      map[a.date].count +=1; 
-    });
+    arr.forEach(a=>{ if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; });
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
@@ -209,30 +203,23 @@ export default function App(){
               {progressSummary.map(item=>(
                 <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
                   <div className="font-semibold mb-1">{item.exercise}</div>
-                  {item.logs.length ? (
-                    <div className="space-y-1">
-                      {item.logs.map(log=>(
-                        <div key={log.id} className="flex gap-2 items-center text-sm">
-                          <div>{log.date}: {log.weight}kg × {log.reps} reps</div>
-                          <button onClick={()=>{
-                            const newReps = prompt("Edit reps", log.reps);
-                            const newWeight = prompt("Edit weight", log.weight);
-                            if(newReps !== null && newWeight !== null){
-                              setLogs(prev=>{
-                                const copy = [...prev];
-                                const idx = copy.findIndex(l=>l.id===log.id);
-                                copy[idx] = {...copy[idx], reps:Number(newReps), weight:Number(newWeight)};
-                                return copy;
-                              });
-                            }
-                          }} className="text-blue-500 text-xs">Edit</button>
-                          <button onClick={()=>deleteLog(log.id)} className="text-red-500 text-xs">Delete</button>
-                        </div>
-                      ))}
-                      <div className="text-sm mt-1 text-gray-500">
-                        First: {item.first.weight}kg × {item.first.reps} | Latest: {item.latest.weight}kg × {item.latest.reps}
+                  {item.first && item.latest ? (
+                    <>
+                      <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
+                      <div className="text-sm text-gray-500">Latest: {item.latest.weight}kg × {item.latest.reps} reps</div>
+                      <div className="text-sm">Weight Change: {item.weightDiff}kg ({item.pctWeight || 0}%)</div>
+                      <div className="text-sm">Reps Change: {item.repsDiff} reps ({item.pctReps || 0}%)</div>
+
+                      {/* Edit Logs */}
+                      <div className="mt-2 space-y-1">
+                        {item.entries.map(entry=>(
+                          <div key={entry.id} className="flex items-center gap-2 text-sm">
+                            <span>{entry.date}: {entry.weight}kg × {entry.reps} reps</span>
+                            <button onClick={()=>deleteLog(entry.id)} className="text-red-500">✕</button>
+                          </div>
+                        ))}
                       </div>
-                    </div>
+                    </>
                   ) : (
                     <div className="text-sm text-gray-400">No logs yet</div>
                   )}
@@ -256,18 +243,18 @@ export default function App(){
         {tab==='weekly' && (
           <div>
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {SPLIT.map(day => (
+            {SPLIT.map(day=>(
               <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
                 <div className="font-semibold">{day.day} ({day.muscle})</div>
-                {(day.exercises||[]).concat(customAbs.filter(ex => exerciseMap[ex]?.some(log => log.day === day.day))).map(ex => {
-                  const arr = (exerciseMap[ex]||[]).filter(log => log.day === day.day);
+                {(day.exercises||[]).map(ex=>{
+                  const arr = exerciseMap[ex]||[];
                   if(!arr.length) return null;
                   const last = arr[arr.length-1];
                   const first = arr[0];
-                  const pct = first.weight ? Math.round(((last.weight - first.weight)/first.weight)*100*100)/100 : null;
+                  const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
                   return (
                     <div key={ex} className="text-sm text-gray-700">
-                      {ex}: {last.weight}kg × {last.reps} reps ({pct ? pct + '% ↑' : 'New'})
+                      {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
                     </div>
                   );
                 })}
