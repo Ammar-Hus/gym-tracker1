@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { format, parseISO, subDays, startOfMonth, isAfter } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 const SPLIT = [
   { day: 'Monday', muscle: 'Chest + Triceps + Abs', exercises: ['Bench Press','Incline DB Press','Dips','Pushdowns','Overhead DB Extension','Plank','Deadbug','Woodchoppers'] },
@@ -27,12 +27,8 @@ function groupByExercise(logs){
 }
 
 export default function App(){
-  const [logs, setLogs] = useState(()=>{
-    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
-  });
-  const [customAbs, setCustomAbs] = useState(()=>{
-    try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
-  });
+  const [logs, setLogs] = useState(()=>{try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}});
+  const [customAbs, setCustomAbs] = useState(()=>{try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}});
 
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
@@ -42,23 +38,12 @@ export default function App(){
   const [tab, setTab] = useState('dashboard');
   const [addingAbs, setAddingAbs] = useState(false);
   const [newAbsName, setNewAbsName] = useState("");
-  const [editLogId, setEditLogId] = useState(null);
-  const [editReps, setEditReps] = useState(0);
-  const [editWeight, setEditWeight] = useState(0);
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
   useEffect(()=>{ localStorage.setItem(CUSTOM_ABS_KEY, JSON.stringify(customAbs)); },[customAbs]);
 
-  function openDay(day){ 
-    setSelectedDay(day); 
-    setSelectedExercise(null); 
-    setShowPanel(true); 
-    setSetsInput([{set:1,reps:8,weight:0}]); 
-  }
-  function openExercise(ex){ 
-    setSelectedExercise(ex); 
-    setSetsInput([{set:1,reps:8,weight:0}]); 
-  }
+  function openDay(day){ setSelectedDay(day); setSelectedExercise(null); setShowPanel(true); setSetsInput([{set:1,reps:8,weight:0}]); }
+  function openExercise(ex){ setSelectedExercise(ex); setSetsInput([{set:1,reps:8,weight:0}]); }
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
   function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
@@ -74,34 +59,8 @@ export default function App(){
     setSelectedExercise(null);
   }
 
-  function addCustomAbs(){
-    if(newAbsName.trim()){
-      setCustomAbs(prev=>[...prev,newAbsName.trim()]);
-      setNewAbsName("");
-      setAddingAbs(false);
-    }
-  }
-  function deleteCustomAbs(name){
-    setCustomAbs(prev=> prev.filter(x=>x!==name));
-  }
-
-  function startEditLog(log){
-    setEditLogId(log.id);
-    setEditReps(log.reps);
-    setEditWeight(log.weight);
-  }
-  function cancelEditLog(){
-    setEditLogId(null);
-    setEditReps(0);
-    setEditWeight(0);
-  }
-  function saveEditLog(id){
-    setLogs(prev=> prev.map(l=> l.id===id? {...l,reps:Number(editReps),weight:Number(editWeight)}: l ));
-    cancelEditLog();
-  }
-  function deleteLog(id){
-    setLogs(prev=> prev.filter(l=>l.id!==id));
-  }
+  function addCustomAbs(){ if(newAbsName.trim()){ setCustomAbs(prev=>[...prev,newAbsName.trim()]); setNewAbsName(""); setAddingAbs(false); } }
+  function deleteCustomAbs(name){ setCustomAbs(prev=> prev.filter(x=>x!==name)); }
 
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
 
@@ -109,14 +68,13 @@ export default function App(){
     const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
-      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null, logs:[]};
-      const first = arr[0];
-      const latest = arr[arr.length-1];
+      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null};
+      const first = arr[0]; const latest = arr[arr.length-1];
       const weightDiff = latest.weight - first.weight;
       const repsDiff = latest.reps - first.reps;
       const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
       const pctReps = first.reps? Math.round((repsDiff/first.reps)*100*100)/100 : null;
-      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps, logs:arr};
+      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps};
     });
   }, [exerciseMap]);
 
@@ -125,15 +83,9 @@ export default function App(){
     const map = {};
     arr.forEach(a=>{ 
       if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; 
-      map[a.date].weightSum += a.weight; 
-      map[a.date].repsSum += a.reps; 
-      map[a.date].count +=1; 
+      map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; 
     });
-    return Object.keys(map).sort().map(d=>({ 
-      date:d, 
-      weight: Math.round((map[d].weightSum/map[d].count)*100)/100, 
-      reps: Math.round((map[d].repsSum/map[d].count)*100)/100 
-    }));
+    return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
   const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
@@ -237,52 +189,8 @@ export default function App(){
                     <>
                       <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
                       <div className="text-sm text-gray-500">Latest: {item.latest.weight}kg × {item.latest.reps} reps</div>
-                      <div className="text-sm">Weight Change: {item.weightDiff}kg ({item.pctWeight || 0}%) {item.pctWeight>0?'↑':'↓'}</div>
-                      <div className="text-sm">Reps Change: {item.repsDiff} reps ({item.pctReps || 0}%) {item.pctReps>0?'↑':'↓'}</div>
-
-                      {/* Logs Table */}
-                      <table className="w-full text-sm mt-2 border-t">
-                        <thead>
-                          <tr className="text-left">
-                            <th className="py-1">Date</th>
-                            <th className="py-1">Set</th>
-                            <th className="py-1">Reps</th>
-                            <th className="py-1">Weight</th>
-                            <th className="py-1">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {item.logs.map(log=>(
-                            <tr key={log.id}>
-                              <td className="py-1">{log.date}</td>
-                              <td className="py-1">{log.set}</td>
-                              <td className="py-1">
-                                {editLogId===log.id ? (
-                                  <input type="number" value={editReps} onChange={e=>setEditReps(e.target.value)} className="border p-1 w-16" />
-                                ) : log.reps}
-                              </td>
-                              <td className="py-1">
-                                {editLogId===log.id ? (
-                                  <input type="number" value={editWeight} onChange={e=>setEditWeight(e.target.value)} className="border p-1 w-16" />
-                                ) : log.weight}
-                              </td>
-                              <td className="py-1 flex gap-1">
-                                {editLogId===log.id ? (
-                                  <>
-                                    <button onClick={()=>saveEditLog(log.id)} className="px-1 bg-green-500 text-white rounded">Save</button>
-                                    <button onClick={cancelEditLog} className="px-1 bg-gray-300 rounded">Cancel</button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button onClick={()=>startEditLog(log)} className="px-1 bg-yellow-300 rounded">Edit</button>
-                                    <button onClick={()=>deleteLog(log.id)} className="px-1 bg-red-500 text-white rounded">Delete</button>
-                                  </>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      <div className="text-sm">Weight Change: {item.weightDiff}kg ({item.pctWeight || 0}%)</div>
+                      <div className="text-sm">Reps Change: {item.repsDiff} reps ({item.pctReps || 0}%)</div>
                     </>
                   ) : (
                     <div className="text-sm text-gray-400">No logs yet</div>
@@ -307,23 +215,28 @@ export default function App(){
         {tab==='weekly' && (
           <div>
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {SPLIT.map(day=>(
-              <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
-                <div className="font-semibold">{day.day} ({day.muscle})</div>
-                {(day.exercises||[]).map(ex=>{
-                  const arr = exerciseMap[ex]||[];
-                  if(!arr.length) return null;
-                  const last = arr[arr.length-1];
-                  const first = arr[0];
-                  const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
-                  return (
-                    <div key={ex} className="text-sm text-gray-700">
-                      {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+            {SPLIT.map(day=>{
+              // Merge SPLIT exercises + any custom/existing exercises
+              const dayExercises = [...new Set([...(day.exercises||[]), ...Object.keys(exerciseMap)])];
+
+              return (
+                <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
+                  <div className="font-semibold">{day.day} ({day.muscle})</div>
+                  {dayExercises.map(ex=>{
+                    const arr = exerciseMap[ex]?.filter(l=>l.day===day.day)||[];
+                    if(!arr.length) return null;
+                    const last = arr[arr.length-1];
+                    const first = arr[0];
+                    const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
+                    return (
+                      <div key={ex} className="text-sm text-gray-700">
+                        {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑': 'New'})
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
