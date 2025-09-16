@@ -14,6 +14,7 @@ const SPLIT = [
 
 const STORAGE_KEY = 'gympro_logs_v2';
 const CUSTOM_ABS_KEY = 'gympro_custom_abs';
+
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
 function groupByExercise(logs){
@@ -38,7 +39,7 @@ export default function App(){
   const [tab, setTab] = useState('dashboard');
   const [addingAbs, setAddingAbs] = useState(false);
   const [newAbsName, setNewAbsName] = useState("");
-  const [editingLogId, setEditingLogId] = useState(null);
+  const [expandedLogs, setExpandedLogs] = useState({}); // for collapsible log panels
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
   useEffect(()=>{ localStorage.setItem(CUSTOM_ABS_KEY, JSON.stringify(customAbs)); },[customAbs]);
@@ -49,47 +50,23 @@ export default function App(){
     setShowPanel(true); 
     setSetsInput([{set:1,reps:8,weight:0}]); 
   }
-
   function openExercise(ex){ 
     setSelectedExercise(ex); 
     setSetsInput([{set:1,reps:8,weight:0}]); 
   }
-
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
-  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=Number(val); setSetsInput(copy); }
+  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
 
   function saveExercise(){
     if(!selectedExercise) return;
-    if(editingLogId){
-      // Editing existing logs
-      setLogs(prev=>{
-        const copy = prev.map(l=>{
-          if(l.id === editingLogId){
-            return {...l, reps: setsInput[0].reps, weight: setsInput[0].weight};
-          }
-          return l;
-        });
-        return copy.sort((a,b)=> a.date > b.date ? 1 : -1);
-      });
-      setEditingLogId(null);
-    } else {
-      const newEntries = setsInput.map(s=>({
-        id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
-        set: s.set, reps: Number(s.reps), weight: Number(s.weight)
-      }));
-      setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
-    }
+    const newEntries = setsInput.map(s=>({
+      id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
+      set: s.set, reps: Number(s.reps), weight: Number(s.weight)
+    }));
+    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
     setSetsInput([{set:1,reps:8,weight:0}]);
     setSelectedExercise(null);
-  }
-
-  function startEditLog(log){
-    setEditingLogId(log.id);
-    setSelectedExercise(log.exercise);
-    setSetsInput([{set: log.set, reps: log.reps, weight: log.weight}]);
-    setShowPanel(true);
-    setSelectedDay(log.day);
   }
 
   function addCustomAbs(){
@@ -99,12 +76,17 @@ export default function App(){
       setAddingAbs(false);
     }
   }
-
   function deleteCustomAbs(name){
     setCustomAbs(prev=> prev.filter(x=>x!==name));
   }
 
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
+
+  function toggleExpand(ex){ setExpandedLogs(prev=>({...prev,[ex]:!prev[ex]})); }
+
+  function updateLog(exId, field, value){
+    setLogs(prev=> prev.map(l=> l.id===exId ? {...l, [field]: Number(value)} : l));
+  }
 
   const progressSummary = useMemo(()=>{
     const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
@@ -117,7 +99,7 @@ export default function App(){
       const repsDiff = latest.reps - first.reps;
       const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
       const pctReps = first.reps? Math.round((repsDiff/first.reps)*100*100)/100 : null;
-      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps};
+      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps, logs: arr};
     });
   }, [exerciseMap]);
 
@@ -161,7 +143,7 @@ export default function App(){
                 <div className="bg-white dark:bg-gray-800 w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-bold">{selectedDay} Exercises</div>
-                    <button onClick={()=>{setShowPanel(false); setSelectedExercise(null); setEditingLogId(null)}}>✕</button>
+                    <button onClick={()=>setShowPanel(false)}>✕</button>
                   </div>
 
                   {!selectedExercise && (
@@ -192,19 +174,6 @@ export default function App(){
                           <button onClick={()=>{setAddingAbs(false);setNewAbsName("");}} className="px-2 bg-gray-300 rounded">Cancel</button>
                         </div>
                       )}
-
-                      {/* Logged Entries Edit */}
-                      <div className="mt-4">
-                        <div className="font-semibold mb-1">Edit Logged Entries</div>
-                        {logs.filter(l=>l.day===selectedDay).map(l=>(
-                          <div key={l.id} className="flex justify-between items-center bg-gray-50 p-1 rounded mb-1 text-sm">
-                            <div>{l.exercise}: {l.weight}kg × {l.reps}</div>
-                            <button onClick={()=>startEditLog(l)} className="text-blue-500">Edit</button>
-                          </div>
-                        ))}
-                        {logs.filter(l=>l.day===selectedDay).length===0 && <div className="text-gray-400 text-sm">No logs to edit</div>}
-                      </div>
-
                     </div>
                   )}
 
@@ -220,11 +189,10 @@ export default function App(){
                       ))}
                       <div className="flex gap-2">
                         <button onClick={addSetRow} className="px-3 py-1 bg-gray-200 rounded w-full sm:w-auto">+ Set</button>
-                        <button onClick={saveExercise} className="px-3 py-1 bg-indigo-500 text-white rounded w-full sm:w-auto">{editingLogId?'Save Edit':'Save'}</button>
+                        <button onClick={saveExercise} className="px-3 py-1 bg-indigo-500 text-white rounded w-full sm:w-auto">Save</button>
                       </div>
                     </div>
                   )}
-
                 </div>
               </div>
             )}
@@ -237,8 +205,11 @@ export default function App(){
             <div className="text-xl font-bold">Progress Summary</div>
             <div className="grid gap-3">
               {progressSummary.map(item=>(
-                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
-                  <div className="font-semibold mb-1">{item.exercise}</div>
+                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow">
+                  <div className="flex justify-between items-center">
+                    <div className="font-semibold">{item.exercise}</div>
+                    <button onClick={()=>toggleExpand(item.exercise)} className="text-sm text-indigo-500">{expandedLogs[item.exercise] ? 'Hide Logs' : 'View/Edit Logs'}</button>
+                  </div>
                   {item.first && item.latest ? (
                     <>
                       <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
@@ -249,6 +220,19 @@ export default function App(){
                   ) : (
                     <div className="text-sm text-gray-400">No logs yet</div>
                   )}
+
+                  {expandedLogs[item.exercise] && item.logs.length>0 && (
+                    <div className="mt-2 max-h-64 overflow-y-auto border-t pt-2">
+                      {item.logs.map(l=>(
+                        <div key={l.id} className="flex items-center gap-2 mb-1">
+                          <div className="text-xs w-20">{l.date}</div>
+                          <input type="number" value={l.reps} onChange={e=>updateLog(l.id,'reps',e.target.value)} className="border p-1 w-12 text-xs" />
+                          <input type="number" value={l.weight} onChange={e=>updateLog(l.id,'weight',e.target.value)} className="border p-1 w-16 text-xs" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <ResponsiveContainer width="100%" height={150}>
                     <LineChart data={chartDataForExercise(item.exercise)}>
                       <CartesianGrid strokeDasharray="3 3" />
@@ -272,7 +256,7 @@ export default function App(){
             {SPLIT.map(day=>(
               <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
                 <div className="font-semibold">{day.day} ({day.muscle})</div>
-                {(day.exercises||[]).concat(customAbs).map(ex=>{
+                {(day.exercises||[]).map(ex=>{
                   const arr = exerciseMap[ex]||[];
                   if(!arr.length) return null;
                   const last = arr[arr.length-1];
