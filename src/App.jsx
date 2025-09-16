@@ -14,6 +14,7 @@ const SPLIT = [
 
 const STORAGE_KEY = 'gympro_logs_v2';
 const CUSTOM_ABS_KEY = 'gympro_custom_abs';
+
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
 function groupByExercise(logs){
@@ -27,11 +28,11 @@ function groupByExercise(logs){
 }
 
 export default function App(){
-  const [logs, setLogs] = useState(()=>{
-    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
+  const [logs, setLogs] = useState(()=>{ 
+    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} 
   });
-  const [customAbs, setCustomAbs] = useState(()=>{
-    try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []}
+  const [customAbs, setCustomAbs] = useState(()=>{ 
+    try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} 
   });
 
   const [selectedDay, setSelectedDay] = useState(null);
@@ -40,10 +41,6 @@ export default function App(){
   const [setsInput, setSetsInput] = useState([{set:1,reps:8,weight:0}]);
   const [date, setDate] = useState(format(new Date(),'yyyy-MM-dd'));
   const [tab, setTab] = useState('dashboard');
-
-  // Progress sliding panel
-  const [activeLogExercise, setActiveLogExercise] = useState(null);
-
   const [addingAbs, setAddingAbs] = useState(false);
   const [newAbsName, setNewAbsName] = useState("");
 
@@ -61,7 +58,7 @@ export default function App(){
     setSetsInput([{set:1,reps:8,weight:0}]); 
   }
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
-  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
+  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=Number(val); setSetsInput(copy); }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
 
   function saveExercise(){
@@ -86,37 +83,33 @@ export default function App(){
     setCustomAbs(prev=> prev.filter(x=>x!==name));
   }
 
+  function deleteLog(id){
+    setLogs(prev=>prev.filter(l=>l.id!==id));
+  }
+
   const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
 
   const progressSummary = useMemo(()=>{
-    const exs = Array.from(new Set([...Object.keys(exerciseMap), ...SPLIT.flatMap(s=>s.exercises), ...customAbs]));
+    const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
     return exs.map(ex=>{
       const arr = exerciseMap[ex]||[];
-      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null};
+      if(!arr.length) return {exercise:ex, first:null, latest:null, logs:[]};
       const first = arr[0];
       const latest = arr[arr.length-1];
-      const weightDiff = latest.weight - first.weight;
-      const repsDiff = latest.reps - first.reps;
-      const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
-      const pctReps = first.reps? Math.round((repsDiff/first.reps)*100*100)/100 : null;
-      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps};
+      return {exercise:ex, first, latest, logs: arr};
     });
-  }, [exerciseMap, customAbs]);
+  }, [exerciseMap]);
 
   function chartDataForExercise(ex){
     const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
     const map = {};
-    arr.forEach(a=>{ if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; map[a.date].weightSum += a.weight; map[a.date].repsSum += a.reps; map[a.date].count +=1; });
-    return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
-  }
-
-  function editLog(id, field, value){
-    setLogs(prev=>{
-      return prev.map(l=> l.id===id? {...l, [field]: Number(value)} : l);
+    arr.forEach(a=>{ 
+      if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0}; 
+      map[a.date].weightSum += a.weight; 
+      map[a.date].repsSum += a.reps; 
+      map[a.date].count +=1; 
     });
-  }
-  function deleteLog(id){
-    setLogs(prev=> prev.filter(l=> l.id!==id));
+    return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
   const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
@@ -214,25 +207,35 @@ export default function App(){
             <div className="text-xl font-bold">Progress Summary</div>
             <div className="grid gap-3">
               {progressSummary.map(item=>(
-                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto relative">
-                  <div className="flex justify-between items-center mb-1">
-                    <div className="font-semibold">{item.exercise}</div>
-                    <button onClick={()=>setActiveLogExercise(activeLogExercise===item.exercise?null:item.exercise)} className="px-2 py-1 bg-indigo-200 rounded text-sm">
-                      {activeLogExercise===item.exercise?'Hide Logs':'View Logs'}
-                    </button>
-                  </div>
-
-                  {item.first && item.latest ? (
-                    <>
-                      <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
-                      <div className="text-sm text-gray-500">Latest: {item.latest.weight}kg × {item.latest.reps} reps</div>
-                      <div className="text-sm">Weight Change: {item.weightDiff}kg ({item.pctWeight || 0}%)</div>
-                      <div className="text-sm">Reps Change: {item.repsDiff} reps ({item.pctReps || 0}%)</div>
-                    </>
+                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
+                  <div className="font-semibold mb-1">{item.exercise}</div>
+                  {item.logs.length ? (
+                    <div className="space-y-1">
+                      {item.logs.map(log=>(
+                        <div key={log.id} className="flex gap-2 items-center text-sm">
+                          <div>{log.date}: {log.weight}kg × {log.reps} reps</div>
+                          <button onClick={()=>{
+                            const newReps = prompt("Edit reps", log.reps);
+                            const newWeight = prompt("Edit weight", log.weight);
+                            if(newReps !== null && newWeight !== null){
+                              setLogs(prev=>{
+                                const copy = [...prev];
+                                const idx = copy.findIndex(l=>l.id===log.id);
+                                copy[idx] = {...copy[idx], reps:Number(newReps), weight:Number(newWeight)};
+                                return copy;
+                              });
+                            }
+                          }} className="text-blue-500 text-xs">Edit</button>
+                          <button onClick={()=>deleteLog(log.id)} className="text-red-500 text-xs">Delete</button>
+                        </div>
+                      ))}
+                      <div className="text-sm mt-1 text-gray-500">
+                        First: {item.first.weight}kg × {item.first.reps} | Latest: {item.latest.weight}kg × {item.latest.reps}
+                      </div>
+                    </div>
                   ) : (
                     <div className="text-sm text-gray-400">No logs yet</div>
                   )}
-
                   <ResponsiveContainer width="100%" height={150}>
                     <LineChart data={chartDataForExercise(item.exercise)}>
                       <CartesianGrid strokeDasharray="3 3" />
@@ -243,26 +246,6 @@ export default function App(){
                       <Line type="monotone" dataKey="reps" stroke="#EC4899" />
                     </LineChart>
                   </ResponsiveContainer>
-
-                  {/* Sliding Logs Panel */}
-                  {activeLogExercise===item.exercise && (
-                    <div className="absolute top-0 right-0 w-80 max-h-[400px] bg-white shadow-xl p-3 overflow-y-auto border-l">
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="font-semibold text-lg">{item.exercise} Logs</div>
-                        <button onClick={()=>setActiveLogExercise(null)}>✕</button>
-                      </div>
-                      {exerciseMap[item.exercise]?.map(log=>(
-                        <div key={log.id} className="mb-2 border-b pb-1">
-                          <div className="flex items-center gap-2">
-                            <input type="number" value={log.reps} onChange={e=>editLog(log.id,'reps',e.target.value)} className="border p-1 w-16"/>
-                            <input type="number" value={log.weight} onChange={e=>editLog(log.id,'weight',e.target.value)} className="border p-1 w-20"/>
-                            <span className="text-xs text-gray-400">{log.date}</span>
-                            <button onClick={()=>deleteLog(log.id)} className="text-red-500 text-sm">Delete</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -273,18 +256,23 @@ export default function App(){
         {tab==='weekly' && (
           <div>
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {Array.from(new Set([...SPLIT.flatMap(d=>d.exercises), ...customAbs])).map(ex=>{
-              const arr = exerciseMap[ex]||[];
-              if(!arr.length) return null;
-              const last = arr[arr.length-1];
-              const first = arr[0];
-              const pct = first.weight? Math.round(((last.weight-first.weight)/first.weight)*100*100)/100 : null;
-              return (
-                <div key={ex} className="mb-2 p-3 rounded-xl bg-white shadow text-sm">
-                  {ex}: {last.weight}kg × {last.reps} reps ({pct? pct+'% ↑':'New'})
-                </div>
-              );
-            })}
+            {SPLIT.map(day => (
+              <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
+                <div className="font-semibold">{day.day} ({day.muscle})</div>
+                {(day.exercises||[]).concat(customAbs.filter(ex => exerciseMap[ex]?.some(log => log.day === day.day))).map(ex => {
+                  const arr = (exerciseMap[ex]||[]).filter(log => log.day === day.day);
+                  if(!arr.length) return null;
+                  const last = arr[arr.length-1];
+                  const first = arr[0];
+                  const pct = first.weight ? Math.round(((last.weight - first.weight)/first.weight)*100*100)/100 : null;
+                  return (
+                    <div key={ex} className="text-sm text-gray-700">
+                      {ex}: {last.weight}kg × {last.reps} reps ({pct ? pct + '% ↑' : 'New'})
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         )}
       </div>
