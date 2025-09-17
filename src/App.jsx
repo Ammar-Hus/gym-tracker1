@@ -108,6 +108,21 @@ export default function App(){
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
+  // 🔥 Suggestion Logic
+  function getSuggestion(ex){
+    const arr = exerciseMap[ex]||[];
+    if(arr.length < 2) return "No suggestion yet, keep logging!";
+    const last = arr[arr.length-1];
+    const prev = arr[arr.length-2];
+    if(last.reps >= prev.reps && last.weight === prev.weight){
+      return "Next time: add +2.5kg";
+    } else if(last.weight > prev.weight){
+      return "Maintain this weight, solid progress!";
+    } else {
+      return "Repeat same weight until consistent.";
+    }
+  }
+
   const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
 
   return (
@@ -137,7 +152,7 @@ export default function App(){
             </div>
 
             {showPanel && selectedDay && (
-              <div className="fixed inset-0 bg-black/40 flex justify-center md:justify-end items-start pt-10 px-2 z-50">
+              <div className="fixed inset-0 bg-black/40 flex justify-center md:justify-end items-start pt-10 px-2">
                 <div className="bg-white w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-bold">{selectedDay} Exercises</div>
@@ -178,6 +193,10 @@ export default function App(){
                   {selectedExercise && (
                     <div>
                       <div className="font-semibold mb-2">{selectedExercise}</div>
+
+                      {/* 🔥 Suggestion shown here */}
+                      <div className="text-sm text-blue-600 mb-2">{getSuggestion(selectedExercise)}</div>
+
                       {setsInput.map((s,i)=>(
                         <div key={i} className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 mb-2">
                           <input type="number" value={s.reps} onChange={e=>updateSet(i,'reps',e.target.value)} className="border p-1 w-full sm:w-16" placeholder="Reps" />
@@ -247,7 +266,6 @@ export default function App(){
             <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
             {SPLIT.map(day=>{
               const defaultExercises = day.exercises || [];
-              // Custom exercises logged on this day only
               const customExercisesLogged = logs
                 .filter(log => log.day === day.day && !defaultExercises.includes(log.exercise))
                 .map(log => log.exercise);
