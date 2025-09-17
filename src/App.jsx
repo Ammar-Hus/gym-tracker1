@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from "react";
-import "./App.css";
 
 function App() {
   const [logs, setLogs] = useState(() => {
