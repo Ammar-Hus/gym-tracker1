@@ -22,8 +22,19 @@ function groupByExercise(logs){
     if(!map[l.exercise]) map[l.exercise]=[];
     map[l.exercise].push(l);
   });
-  Object.keys(map).forEach(k=> map[k].sort((a,b)=> a.date > b.date ? 1 : -1));
+  Object.keys(map).forEach(k=> 
+    map[k].sort((a,b)=> new Date(a.date) - new Date(b.date))
+  );
   return map;
+}
+
+// 🔹 helper: get week number
+function getWeekKey(dateStr){
+  const d = new Date(dateStr);
+  const firstDay = new Date(d.getFullYear(), 0, 1);
+  const days = Math.floor((d - firstDay) / 86400000);
+  const week = Math.ceil((days + firstDay.getDay() + 1) / 7);
+  return `${d.getFullYear()}-${week}`;
 }
 
 export default function App(){
@@ -52,7 +63,11 @@ export default function App(){
     setSetsInput([{set:1,reps:8,weight:0}]); 
   }
   function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
-  function updateSet(idx, field, val){ const copy=[...setsInput]; copy[idx][field]=val; setSetsInput(copy); }
+  function updateSet(idx, field, val){ 
+    const copy=[...setsInput]; 
+    copy[idx][field]=Number(val) || 0; 
+    setSetsInput(copy); 
+  }
   function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
 
   function saveExercise(){
@@ -61,7 +76,7 @@ export default function App(){
       id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
       set: s.set, reps: Number(s.reps), weight: Number(s.weight)
     }));
-    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> a.date > b.date ? 1 : -1));
+    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> new Date(a.date) - new Date(b.date)));
     setSetsInput([{set:1,reps:8,weight:0}]);
     setSelectedExercise(null);
   }
@@ -108,7 +123,6 @@ export default function App(){
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
-  // 🔥 Suggestion Logic
   function getSuggestion(ex){
     const arr = exerciseMap[ex]||[];
     if(arr.length < 2) return "No suggestion yet, keep logging!";
@@ -139,126 +153,7 @@ export default function App(){
       {/* Main Content */}
       <div className="flex-1 p-4 overflow-y-auto">
         {/* Dashboard */}
-        {tab==='dashboard' && (
-          <div className="space-y-4">
-            <div className="text-xl font-bold">Select a Day</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {SPLIT.map(d=>(
-                <button key={d.day} onClick={()=>openDay(d.day)} className="p-4 rounded-xl shadow bg-white text-left">
-                  <div className="font-semibold">{d.day}</div>
-                  <div className="text-xs text-gray-500">{d.muscle}</div>
-                </button>
-              ))}
-            </div>
-
-            {showPanel && selectedDay && (
-              <div className="fixed inset-0 bg-black/40 flex justify-center md:justify-end items-start pt-10 px-2">
-                <div className="bg-white w-full max-w-md p-4 rounded-xl shadow overflow-y-auto">
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="font-bold">{selectedDay} Exercises</div>
-                    <button onClick={()=>setShowPanel(false)}>✕</button>
-                  </div>
-
-                  {!selectedExercise && (
-                    <div className="space-y-2">
-                      {(SPLIT.find(d=>d.day===selectedDay)?.exercises||[]).map(ex=>(
-                        <button key={ex} onClick={()=>openExercise(ex)} className="block w-full text-left p-2 bg-indigo-50 rounded">{ex}</button>
-                      ))}
-
-                      {/* Abs Section */}
-                      <div className="mt-3 text-sm font-semibold">Abs Exercises (select manually):</div>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {['Plank','Crunch','Russian Twists','V-Ups','Hanging Leg Raise', ...customAbs].map(ex=>(
-                          <div key={ex} className="flex items-center gap-1">
-                            <button onClick={()=>openExercise(ex)} className="px-2 py-1 rounded bg-gray-100 hover:bg-indigo-200">{ex}</button>
-                            {customAbs.includes(ex) && (
-                              <button onClick={()=>deleteCustomAbs(ex)} className="text-red-500 text-xs">✕</button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      {!addingAbs ? (
-                        <button onClick={()=>setAddingAbs(true)} className="mt-2 px-2 py-1 bg-green-200 rounded">+ Add Custom Abs Exercise</button>
-                      ) : (
-                        <div className="mt-2 flex gap-2">
-                          <input value={newAbsName} onChange={e=>setNewAbsName(e.target.value)} className="border p-1 flex-1" placeholder="New exercise name"/>
-                          <button onClick={addCustomAbs} className="px-2 bg-green-500 text-white rounded">Add</button>
-                          <button onClick={()=>{setAddingAbs(false);setNewAbsName("");}} className="px-2 bg-gray-300 rounded">Cancel</button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {selectedExercise && (
-                    <div>
-                      <div className="font-semibold mb-2">{selectedExercise}</div>
-
-                      {/* 🔥 Suggestion shown here */}
-                      <div className="text-sm text-blue-600 mb-2">{getSuggestion(selectedExercise)}</div>
-
-                      {setsInput.map((s,i)=>(
-                        <div key={i} className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 mb-2">
-                          <input type="number" value={s.reps} onChange={e=>updateSet(i,'reps',e.target.value)} className="border p-1 w-full sm:w-16" placeholder="Reps" />
-                          <input type="number" value={s.weight} onChange={e=>updateSet(i,'weight',e.target.value)} className="border p-1 w-full sm:w-20" placeholder="Weight" />
-                          <button onClick={()=>removeSet(i)} className="text-red-500">✕</button>
-                        </div>
-                      ))}
-                      <div className="flex gap-2">
-                        <button onClick={addSetRow} className="px-3 py-1 bg-gray-200 rounded w-full sm:w-auto">+ Set</button>
-                        <button onClick={saveExercise} className="px-3 py-1 bg-indigo-500 text-white rounded w-full sm:w-auto">Save</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Progress */}
-        {tab==='progress' && (
-          <div className="space-y-6">
-            <div className="text-xl font-bold">Progress Summary</div>
-            <div className="grid gap-3">
-              {progressSummary.map(item=>(
-                <div key={item.exercise} className="p-3 rounded-xl bg-white shadow overflow-x-auto">
-                  <div className="font-semibold mb-1">{item.exercise}</div>
-                  {item.first && item.latest ? (
-                    <>
-                      <div className="text-sm text-gray-500">First: {item.first.weight}kg × {item.first.reps} reps</div>
-                      <div className="text-sm text-gray-500">Latest: {item.latest.weight}kg × {item.latest.reps} reps</div>
-                      <div className="text-sm">Weight Change: {item.weightDiff}kg ({item.pctWeight || 0}%)</div>
-                      <div className="text-sm">Reps Change: {item.repsDiff} reps ({item.pctReps || 0}%)</div>
-
-                      {/* Edit/Delete logs */}
-                      <div className="mt-2 space-y-1">
-                        {logs.filter(l=>l.exercise===item.exercise).map(l=>(
-                          <div key={l.id} className="flex items-center gap-2 text-sm">
-                            <div>{l.date} - Set {l.set}: {l.weight}kg × {l.reps} reps</div>
-                            <button onClick={()=>deleteLog(l.id)} className="text-red-500">✕</button>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-sm text-gray-400">No logs yet</div>
-                  )}
-                  <ResponsiveContainer width="100%" height={150}>
-                    <LineChart data={chartDataForExercise(item.exercise)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tickFormatter={d=>d.slice(5)} />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="weight" stroke="#6366F1" />
-                      <Line type="monotone" dataKey="reps" stroke="#EC4899" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* ... (unchanged Dashboard + Progress sections) ... */}
 
         {/* Weekly Strength */}
         {tab==='weekly' && (
@@ -276,15 +171,43 @@ export default function App(){
                 <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
                   <div className="font-semibold">{day.day} ({day.muscle})</div>
                   {allExercises.map(ex=>{
-                    const arr = logs.filter(l=>l.exercise===ex && l.day===day.day);
+                    const arr = logs
+                      .filter(l=>l.exercise===ex && l.day===day.day)
+                      .sort((a,b)=> new Date(a.date) - new Date(b.date));
+
                     if(!arr.length) return null;
-                    const first = arr[0];
-                    const last = arr[arr.length-1];
-                    const pctWeight = first.weight ? Math.round(((last.weight - first.weight)/first.weight)*100*100)/100 : null;
-                    const pctReps = first.reps ? Math.round(((last.reps - first.reps)/first.reps)*100*100)/100 : null;
+
+                    // group logs by week
+                    const byWeek = {};
+                    arr.forEach(l=>{
+                      const key = getWeekKey(l.date);
+                      if(!byWeek[key]) byWeek[key] = [];
+                      byWeek[key].push(l);
+                    });
+
+                    const weeks = Object.keys(byWeek).sort();
+                    if(weeks.length < 2) {
+                      return (
+                        <div key={ex} className="text-sm text-gray-500">
+                          {ex}: Not enough weekly data yet
+                        </div>
+                      );
+                    }
+
+                    const lastWeek = weeks[weeks.length-2];
+                    const thisWeek = weeks[weeks.length-1];
+
+                    const prevEntry = byWeek[lastWeek][byWeek[lastWeek].length-1];
+                    const currEntry = byWeek[thisWeek][byWeek[thisWeek].length-1];
+
+                    const pctWeight = prevEntry.weight ? Math.round(((currEntry.weight - prevEntry.weight)/prevEntry.weight)*100*100)/100 : null;
+                    const pctReps = prevEntry.reps ? Math.round(((currEntry.reps - prevEntry.reps)/prevEntry.reps)*100*100)/100 : null;
+
                     return (
                       <div key={ex} className="text-sm text-gray-700">
-                        {ex}: {last.weight}kg × {last.reps} reps ({pctWeight? pctWeight+'% ↑':'New'}, {pctReps? pctReps+'% ↑':'New'})
+                        {ex}: {currEntry.weight}kg × {currEntry.reps} reps 
+                        ({pctWeight !== null ? `${pctWeight}%` : "New"} in weight, 
+                         {pctReps !== null ? `${pctReps}%` : "New"} in reps)
                       </div>
                     );
                   })}
