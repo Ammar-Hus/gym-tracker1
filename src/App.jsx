@@ -28,195 +28,190 @@ function groupByExercise(logs){
   return map;
 }
 
-// 🔹 helper: get week number
-function getWeekKey(dateStr){
-  const d = new Date(dateStr);
-  const firstDay = new Date(d.getFullYear(), 0, 1);
-  const days = Math.floor((d - firstDay) / 86400000);
-  const week = Math.ceil((days + firstDay.getDay() + 1) / 7);
-  return `${d.getFullYear()}-${week}`;
-}
-
 export default function App(){
-  const [logs, setLogs] = useState(()=>{ try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
-  const [customAbs, setCustomAbs] = useState(()=>{ try{ const raw = localStorage.getItem(CUSTOM_ABS_KEY); return raw? JSON.parse(raw): []; }catch(e){return []} });
-  const [selectedDay, setSelectedDay] = useState(null);
-  const [selectedExercise, setSelectedExercise] = useState(null);
-  const [showPanel, setShowPanel] = useState(false);
-  const [setsInput, setSetsInput] = useState([{set:1,reps:8,weight:0}]);
-  const [date, setDate] = useState(format(new Date(),'yyyy-MM-dd'));
+  const [logs, setLogs] = useState([]);
+  const [customAbs, setCustomAbs] = useState([]);
   const [tab, setTab] = useState('dashboard');
-  const [addingAbs, setAddingAbs] = useState(false);
-  const [newAbsName, setNewAbsName] = useState("");
 
-  useEffect(()=>{ localStorage.setItem(STORAGE_KEY, JSON.stringify(logs)); },[logs]);
-  useEffect(()=>{ localStorage.setItem(CUSTOM_ABS_KEY, JSON.stringify(customAbs)); },[customAbs]);
+  useEffect(()=>{
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if(stored) setLogs(JSON.parse(stored));
+    const ca = localStorage.getItem(CUSTOM_ABS_KEY);
+    if(ca) setCustomAbs(JSON.parse(ca));
+  },[]);
 
-  function openDay(day){ 
-    setSelectedDay(day); 
-    setSelectedExercise(null); 
-    setShowPanel(true); 
-    setSetsInput([{set:1,reps:8,weight:0}]); 
+  useEffect(()=>{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
+  },[logs]);
+  useEffect(()=>{
+    localStorage.setItem(CUSTOM_ABS_KEY, JSON.stringify(customAbs));
+  },[customAbs]);
+
+  const grouped = useMemo(()=>groupByExercise(logs),[logs]);
+
+  function addLog(day, exercise){
+    const d = format(new Date(),'yyyy-MM-dd');
+    setLogs([...logs, {id:uid(), date:d, day, exercise, weight:0, reps:0}]);
   }
-  function openExercise(ex){ 
-    setSelectedExercise(ex); 
-    setSetsInput([{set:1,reps:8,weight:0}]); 
+  function updateSet(id, field, val){
+    setLogs(logs.map(l=> l.id===id ? {...l,[field]: Number(val)||0} : l));
   }
-  function addSetRow(){ setSetsInput(prev=>[...prev, {set: prev.length+1, reps:8, weight:0}]); }
-  function updateSet(idx, field, val){ 
-    const copy=[...setsInput]; 
-    copy[idx][field]=Number(val) || 0; 
-    setSetsInput(copy); 
+  function removeSet(id){
+    setLogs(logs.filter(l=>l.id!==id));
   }
-  function removeSet(idx){ const copy=[...setsInput]; copy.splice(idx,1); copy.forEach((r,i)=>r.set=i+1); setSetsInput(copy); }
-
-  function saveExercise(){
-    if(!selectedExercise) return;
-    const newEntries = setsInput.map(s=>({
-      id: uid(), date, day: selectedDay || format(parseISO(date),'EEEE'), exercise: selectedExercise,
-      set: s.set, reps: Number(s.reps), weight: Number(s.weight)
-    }));
-    setLogs(prev=>[...prev, ...newEntries].sort((a,b)=> new Date(a.date) - new Date(b.date)));
-    setSetsInput([{set:1,reps:8,weight:0}]);
-    setSelectedExercise(null);
+  function addCustomAbs(ex){
+    if(ex && !customAbs.includes(ex)) setCustomAbs([...customAbs,ex]);
   }
-
-  function addCustomAbs(){
-    if(newAbsName.trim()){
-      setCustomAbs(prev=>[...prev,newAbsName.trim()]);
-      setNewAbsName("");
-      setAddingAbs(false);
-    }
-  }
-  function deleteCustomAbs(name){
-    setCustomAbs(prev=> prev.filter(x=>x!==name));
-  }
-
-  function deleteLog(id){ setLogs(prev=> prev.filter(l=>l.id!==id)); }
-
-  const exerciseMap = useMemo(()=> groupByExercise(logs), [logs]);
-
-  const progressSummary = useMemo(()=>{
-    const exs = Object.keys(exerciseMap).length ? Object.keys(exerciseMap) : SPLIT.flatMap(s=>s.exercises);
-    return exs.map(ex=>{
-      const arr = exerciseMap[ex]||[];
-      if(!arr.length) return {exercise:ex, first:null, latest:null, weightDiff:null, repsDiff:null, pctWeight:null, pctReps:null};
-      const first = arr[0];
-      const latest = arr[arr.length-1];
-      const weightDiff = latest.weight - first.weight;
-      const repsDiff = latest.reps - first.reps;
-      const pctWeight = first.weight? Math.round((weightDiff/first.weight)*100*100)/100 : null;
-      const pctReps = first.reps? Math.round((repsDiff/first.reps)*100*100)/100 : null;
-      return {exercise:ex, first, latest, weightDiff, repsDiff, pctWeight, pctReps};
-    });
-  }, [exerciseMap]);
-
-  function chartDataForExercise(ex){
-    const arr = (exerciseMap[ex]||[]).map(r=>({ date: r.date, weight: r.weight, reps: r.reps }));
-    const map = {};
-    arr.forEach(a=>{
-      if(!map[a.date]) map[a.date]={weightSum:0,repsSum:0,count:0};
-      map[a.date].weightSum += a.weight;
-      map[a.date].repsSum += a.reps;
-      map[a.date].count +=1;
-    });
-    return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
-  }
-
-  function getSuggestion(ex){
-    const arr = exerciseMap[ex]||[];
-    if(arr.length < 2) return "No suggestion yet, keep logging!";
-    const last = arr[arr.length-1];
-    const prev = arr[arr.length-2];
-    if(last.reps >= prev.reps && last.weight === prev.weight){
-      return "Next time: add +2.5kg";
-    } else if(last.weight > prev.weight){
-      return "Maintain this weight, solid progress!";
-    } else {
-      return "Repeat same weight until consistent.";
-    }
-  }
-
-  const primary = 'bg-gradient-to-r from-indigo-100 via-white to-pink-50';
 
   return (
-    <div className={`min-h-screen ${primary} flex flex-col md:flex-row`}>
-      {/* Sidebar */}
-      <div className="md:w-64 p-4 bg-white shadow-md flex-shrink-0">
-        <div className="text-xl font-bold mb-4 text-center">Gym Tracker</div>
-        <button onClick={()=>setTab('dashboard')} className={`w-full p-2 mb-2 rounded ${tab==='dashboard'?'bg-indigo-500 text-white':'bg-gray-100'}`}>Dashboard</button>
-        <button onClick={()=>setTab('progress')} className={`w-full p-2 mb-2 rounded ${tab==='progress'?'bg-indigo-500 text-white':'bg-gray-100'}`}>Progress</button>
-        <button onClick={()=>setTab('weekly')} className={`w-full p-2 mb-2 rounded ${tab==='weekly'?'bg-indigo-500 text-white':'bg-gray-100'}`}>Weekly Strength</button>
-        <button onClick={()=>{localStorage.removeItem(STORAGE_KEY); setLogs([]); localStorage.removeItem(CUSTOM_ABS_KEY); setCustomAbs([]);}} className="w-full p-2 mb-2 rounded bg-red-500 text-white">Reset All</button>
+    <div className="p-4 max-w-4xl mx-auto">
+      <div className="flex gap-2 mb-4">
+        {['dashboard','progress','weekly'].map(t=>(
+          <button key={t}
+            onClick={()=>setTab(t)}
+            className={`px-3 py-1 rounded ${tab===t?'bg-blue-500 text-white':'bg-gray-200'}`}>
+            {t}
+          </button>
+        ))}
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        {/* Dashboard */}
-        {/* ... (unchanged Dashboard + Progress sections) ... */}
-
-        {/* Weekly Strength */}
-        {tab==='weekly' && (
-          <div>
-            <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
-            {SPLIT.map(day=>{
-              const defaultExercises = day.exercises || [];
-              const customExercisesLogged = logs
-                .filter(log => log.day === day.day && !defaultExercises.includes(log.exercise))
-                .map(log => log.exercise);
-              const uniqueCustomExercises = [...new Set(customExercisesLogged)];
-              const allExercises = [...defaultExercises, ...uniqueCustomExercises];
-
-              return (
-                <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
-                  <div className="font-semibold">{day.day} ({day.muscle})</div>
-                  {allExercises.map(ex=>{
-                    const arr = logs
-                      .filter(l=>l.exercise===ex && l.day===day.day)
-                      .sort((a,b)=> new Date(a.date) - new Date(b.date));
-
-                    if(!arr.length) return null;
-
-                    // group logs by week
-                    const byWeek = {};
-                    arr.forEach(l=>{
-                      const key = getWeekKey(l.date);
-                      if(!byWeek[key]) byWeek[key] = [];
-                      byWeek[key].push(l);
-                    });
-
-                    const weeks = Object.keys(byWeek).sort();
-                    if(weeks.length < 2) {
-                      return (
-                        <div key={ex} className="text-sm text-gray-500">
-                          {ex}: Not enough weekly data yet
+      {/* Dashboard */}
+      {tab==='dashboard' && (
+        <div>
+          {SPLIT.map(day=>(
+            <div key={day.day} className="mb-6">
+              <div className="text-lg font-bold">{day.day} - {day.muscle}</div>
+              {day.exercises.map(ex=>(
+                <div key={ex} className="ml-4 mb-2">
+                  <div className="font-semibold">{ex}</div>
+                  {logs.filter(l=>l.day===day.day && l.exercise===ex).map(l=>(
+                    <div key={l.id} className="flex items-center gap-2 ml-4 mb-1">
+                      <input type="number" value={l.weight} onChange={e=>updateSet(l.id,'weight',e.target.value)} className="border p-1 w-20"/>
+                      <span>kg ×</span>
+                      <input type="number" value={l.reps} onChange={e=>updateSet(l.id,'reps',e.target.value)} className="border p-1 w-16"/>
+                      <span>reps</span>
+                      <button onClick={()=>removeSet(l.id)} className="text-red-500">x</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>addLog(day.day, ex)} className="ml-4 text-sm bg-green-200 px-2 py-1 rounded">Add Set</button>
+                </div>
+              ))}
+              {day.muscle.includes('Abs') && (
+                <div className="ml-4 mt-2">
+                  <div className="font-semibold">Custom Abs Exercises</div>
+                  {customAbs.map(ex=>(
+                    <div key={ex} className="ml-2 mb-2">
+                      <div>{ex}</div>
+                      {logs.filter(l=>l.day===day.day && l.exercise===ex).map(l=>(
+                        <div key={l.id} className="flex items-center gap-2 ml-4 mb-1">
+                          <input type="number" value={l.weight} onChange={e=>updateSet(l.id,'weight',e.target.value)} className="border p-1 w-20"/>
+                          <span>kg ×</span>
+                          <input type="number" value={l.reps} onChange={e=>updateSet(l.id,'reps',e.target.value)} className="border p-1 w-16"/>
+                          <span>reps</span>
+                          <button onClick={()=>removeSet(l.id)} className="text-red-500">x</button>
                         </div>
-                      );
-                    }
+                      ))}
+                      <button onClick={()=>addLog(day.day, ex)} className="ml-4 text-sm bg-green-200 px-2 py-1 rounded">Add Set</button>
+                    </div>
+                  ))}
+                  <input type="text" placeholder="Add Abs Exercise" onKeyDown={e=>{if(e.key==='Enter'){addCustomAbs(e.target.value); e.target.value='';}}} className="border p-1 mt-2"/>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
-                    const lastWeek = weeks[weeks.length-2];
-                    const thisWeek = weeks[weeks.length-1];
+      {/* Progress */}
+      {tab==='progress' && (
+        <div>
+          {Object.keys(grouped).map(ex=>{
+            const data = grouped[ex].map(l=>({date:l.date, weight:l.weight, reps:l.reps}));
+            return (
+              <div key={ex} className="mb-6">
+                <div className="font-bold mb-2">{ex}</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={data}>
+                    <CartesianGrid stroke="#ccc"/>
+                    <XAxis dataKey="date" tickFormatter={d=>d.slice(5)}/>
+                    <YAxis/>
+                    <Tooltip/>
+                    <Line type="monotone" dataKey="weight" stroke="#8884d8"/>
+                    <Line type="monotone" dataKey="reps" stroke="#82ca9d"/>
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-                    const prevEntry = byWeek[lastWeek][byWeek[lastWeek].length-1];
-                    const currEntry = byWeek[thisWeek][byWeek[thisWeek].length-1];
+      {/* Weekly Strength */}
+      {tab==='weekly' && (
+        <div>
+          <div className="text-xl font-bold mb-3">Weekly Strength Overview</div>
+          {SPLIT.map(day=>{
+            const defaultExercises = day.exercises || [];
+            const customExercisesLogged = logs
+              .filter(log => log.day === day.day && !defaultExercises.includes(log.exercise))
+              .map(log => log.exercise);
+            const uniqueCustomExercises = [...new Set(customExercisesLogged)];
+            const allExercises = [...defaultExercises, ...uniqueCustomExercises];
 
-                    const pctWeight = prevEntry.weight ? Math.round(((currEntry.weight - prevEntry.weight)/prevEntry.weight)*100*100)/100 : null;
-                    const pctReps = prevEntry.reps ? Math.round(((currEntry.reps - prevEntry.reps)/prevEntry.reps)*100*100)/100 : null;
+            return (
+              <div key={day.day} className="mb-4 p-3 rounded-xl bg-white shadow">
+                <div className="font-semibold">{day.day} ({day.muscle})</div>
+                {allExercises.map(ex=>{
+                  const arr = logs
+                    .filter(l=>l.exercise===ex && l.day===day.day)
+                    .sort((a,b)=> new Date(a.date) - new Date(b.date));
 
+                  if(!arr.length) return null;
+
+                  // Group logs by week
+                  const byWeek = {};
+                  arr.forEach(l=>{
+                    const d = new Date(l.date);
+                    const week = `${d.getFullYear()}-${Math.ceil(((d - new Date(d.getFullYear(),0,1)) / 86400000 + d.getDay()+1)/7)}`;
+                    if(!byWeek[week]) byWeek[week] = [];
+                    byWeek[week].push(l);
+                  });
+
+                  const weeks = Object.keys(byWeek).sort();
+                  if(weeks.length < 2) {
                     return (
-                      <div key={ex} className="text-sm text-gray-700">
-                        {ex}: {currEntry.weight}kg × {currEntry.reps} reps 
-                        ({pctWeight !== null ? `${pctWeight}%` : "New"} in weight, 
-                         {pctReps !== null ? `${pctReps}%` : "New"} in reps)
+                      <div key={ex} className="text-sm text-gray-500">
+                        {ex}: Not enough weekly data yet
                       </div>
                     );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                  }
+
+                  const lastWeek = weeks[weeks.length-2];
+                  const thisWeek = weeks[weeks.length-1];
+
+                  const prevEntry = byWeek[lastWeek][byWeek[lastWeek].length-1];
+                  const currEntry = byWeek[thisWeek][byWeek[thisWeek].length-1];
+
+                  const pctWeight = prevEntry.weight ? Math.round(((currEntry.weight - prevEntry.weight)/prevEntry.weight)*100*100)/100 : null;
+                  const pctReps = prevEntry.reps ? Math.round(((currEntry.reps - prevEntry.reps)/prevEntry.reps)*100*100)/100 : null;
+
+                  return (
+                    <div key={ex} className="text-sm">
+                      {ex}: {currEntry.weight}kg × {currEntry.reps} reps 
+                      <span className={pctWeight > 0 ? "text-green-600" : pctWeight < 0 ? "text-red-600" : ""}>
+                        {pctWeight !== null ? ` (${pctWeight}% ${pctWeight>0 ? "↑" : pctWeight<0 ? "↓" : ""} weight)` : " (New weight)"}
+                      </span>
+                      <span className={pctReps > 0 ? "text-green-600 ml-2" : pctReps < 0 ? "text-red-600 ml-2" : "ml-2"}>
+                        {pctReps !== null ? ` (${pctReps}% ${pctReps>0 ? "↑" : pctReps<0 ? "↓" : ""} reps)` : " (New reps)"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
