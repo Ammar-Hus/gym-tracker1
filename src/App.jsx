@@ -108,22 +108,6 @@ export default function App(){
     return Object.keys(map).sort().map(d=>({ date:d, weight: Math.round((map[d].weightSum/map[d].count)*100)/100, reps: Math.round((map[d].repsSum/map[d].count)*100)/100 }));
   }
 
-  // Suggestion Logic
-  function getSuggestion(ex){
-    const arr = exerciseMap[ex]||[];
-    if(arr.length < 2) return "No suggestion yet, keep logging!";
-    const last = arr[arr.length-1];
-    const prev = arr[arr.length-2];
-    if(last.reps >= prev.reps && last.weight === prev.weight){
-      return "Next time: add +2.5kg";
-    } else if(last.weight > prev.weight){
-      return "Maintain this weight, solid progress!";
-    } else {
-      return "Repeat same weight until consistent.";
-    }
-  }
-
-  // Helper to get week key
   function getWeekKey(d){
     const date = new Date(d);
     const onejan = new Date(date.getFullYear(),0,1);
@@ -158,7 +142,48 @@ export default function App(){
                 </button>
               ))}
             </div>
-            {/* ... (unchanged dashboard modal code here) */}
+
+            {/* Panel when a day is selected */}
+            {showPanel && selectedDay && (
+              <div className="p-4 rounded-xl bg-white shadow mt-4">
+                <div className="flex justify-between items-center mb-3">
+                  <div className="font-bold text-lg">{selectedDay}</div>
+                  <button onClick={()=>setShowPanel(false)} className="text-red-500">Close</button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                  {SPLIT.find(s=>s.day===selectedDay)?.exercises.map(ex=>(
+                    <button key={ex} onClick={()=>openExercise(ex)} className={`p-2 rounded border ${selectedExercise===ex?'bg-indigo-500 text-white':'bg-gray-100'}`}>
+                      {ex}
+                    </button>
+                  ))}
+                  {customAbs.map(ex=>(
+                    <button key={ex} onClick={()=>openExercise(ex)} className={`p-2 rounded border ${selectedExercise===ex?'bg-indigo-500 text-white':'bg-gray-100'}`}>
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+
+                {selectedExercise && (
+                  <div className="mt-3">
+                    <div className="font-semibold mb-2">Logging for: {selectedExercise}</div>
+                    <div className="space-y-2">
+                      {setsInput.map((s,idx)=>(
+                        <div key={idx} className="flex items-center gap-2">
+                          <span>Set {s.set}</span>
+                          <input type="number" value={s.reps} onChange={e=>updateSet(idx,'reps',e.target.value)} className="w-20 p-1 border rounded" placeholder="Reps"/>
+                          <input type="number" value={s.weight} onChange={e=>updateSet(idx,'weight',e.target.value)} className="w-24 p-1 border rounded" placeholder="Weight (kg)"/>
+                          {setsInput.length>1 && <button onClick={()=>removeSet(idx)} className="text-red-500">✕</button>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={addSetRow} className="px-2 py-1 rounded bg-gray-200">+ Add Set</button>
+                      <button onClick={saveExercise} className="px-2 py-1 rounded bg-indigo-500 text-white">Save</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -215,7 +240,6 @@ export default function App(){
                     const arr = logs.filter(l=>l.exercise===ex && l.day===day.day).sort((a,b)=> new Date(a.date) - new Date(b.date));
                     if(!arr.length) return null;
 
-                    // Group by week
                     const byWeek = {};
                     arr.forEach(l=>{
                       const w = getWeekKey(l.date);
